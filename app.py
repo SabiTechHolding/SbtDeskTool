@@ -21,10 +21,10 @@ _DEFAULT_ENGINE = list(ENGINES.keys())[0]
 FONT_MIN, FONT_MAX = 7, 28
 WINDOW_EFFECTS = [
     ("solid", "◎ Solid", 1.00, False),
+    ("blur", "◍ Blur", 0.99, True),
     ("dim", "◑ Dim", 0.88, False),
-    ("ghost", "◌ Ghost", 0.72, False),
+    ("ghost", "◌ Ghost", 0.80, False),
     ("clear", "□ Clear", 0.45, False),
-    ("blur", "◍ Blur", 0.92, True),
 ]
 
 
@@ -81,9 +81,9 @@ class SbtDeskTranApp:
         self._tab       = settings.get("active_tab", "tran")
         self._font_size = settings.get("font_size", 10)
         self._word_wrap = settings.get("word_wrap", True)
-        self._window_effect = settings.get("window_effect", settings.get("opacity_mode", "solid"))
+        self._window_effect = settings.get("window_effect", settings.get("opacity_mode", "blur"))
         if self._window_effect not in [effect[0] for effect in WINDOW_EFFECTS]:
-            self._window_effect = "solid"
+            self._window_effect = "blur"
         self._timer     = None
         self._busy      = False
         self._notes     = self._load_notes()
@@ -564,7 +564,8 @@ class SbtDeskTranApp:
 
         # Diff viewer
         self.diff_viewer = DiffViewer(self.content, theme=t,
-            word_wrap=self._word_wrap, bg=t["bg2"])
+            word_wrap=self._word_wrap, font_size=self._font_size,
+            on_zoom=self._on_zoom, bg=t["bg2"])
         self.diff_viewer.pack(fill="both", expand=True)
 
     def _run_diff(self):
@@ -746,6 +747,8 @@ class SbtDeskTranApp:
         for attr in ("src_text","dest_text","diff_left","diff_right","note_body"):
             try: getattr(self, attr).config(font=font)
             except Exception: pass
+        try: self.diff_viewer.set_font_size(self._font_size)
+        except Exception: pass
         self._set_status(f"Font: {self._font_size}px")
         self._save_settings_debounced()
         return "break"

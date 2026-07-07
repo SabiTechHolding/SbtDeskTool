@@ -8,39 +8,64 @@ from diff_engine import compute_line_diff, compute_inline_diff, get_diff_stats
 
 def themed_scrollbar(parent, theme: dict, orient: str = "vertical", **kwargs) -> ttk.Scrollbar:
     """
-    Create a ttk.Scrollbar styled to match the current theme.
-    Uses ttk so thumb/trough colors are respected on Windows.
+    Create a compact Windows 11-style scrollbar.
     """
-    # Must use standard style names that map to existing ttk layouts
-    if orient == "vertical":
-        style_name = "Themed.Vertical.TScrollbar"
-        base = "Vertical.TScrollbar"
-    else:
-        style_name = "Themed.Horizontal.TScrollbar"
-        base = "Horizontal.TScrollbar"
-
-    t = theme
     style = ttk.Style()
-    # Clone layout from base style then override colors
-    try:
-        layout = style.layout(base)
-        style.layout(style_name, layout)
-    except Exception:
-        pass  # layout already registered or not needed
+    vertical = orient == "vertical"
+    style_name = "Win11.Vertical.TScrollbar" if vertical else "Win11.Horizontal.TScrollbar"
+    trough = "Vertical.Scrollbar.trough" if vertical else "Horizontal.Scrollbar.trough"
+    thumb = "Vertical.Scrollbar.thumb" if vertical else "Horizontal.Scrollbar.thumb"
+    sticky = "nswe"
 
-    style.configure(style_name,
-        troughcolor=t.get("bg2", "#141414"),
-        background=t.get("scrollbar", "#383838"),
-        arrowcolor=t.get("fg2", "#909090"),
+    try:
+        style.layout(style_name, [
+            (trough, {
+                "sticky": sticky,
+                "children": [
+                    (thumb, {"expand": "1", "sticky": sticky}),
+                ],
+            }),
+        ])
+    except Exception:
+        pass
+
+    dark = theme.get("name", "dark") == "dark"
+    trough_color = "#1f1f1f" if dark else "#f3f3f3"
+    thumb_color = "#6f6f6f" if dark else "#8f8f8f"
+    hover_color = "#8a8a8a" if dark else "#747474"
+    pressed_color = "#a0a0a0" if dark else "#5f5f5f"
+
+    style.configure(
+        style_name,
+        background=thumb_color,
+        troughcolor=trough_color,
+        bordercolor=trough_color,
+        lightcolor=thumb_color,
+        darkcolor=thumb_color,
+        arrowcolor=thumb_color,
+        relief="flat",
         borderwidth=0,
         bd=0,
-        relief="flat",
+        width=12 if vertical else 10,
+        arrowsize=8,
     )
-    style.map(style_name,
+    style.map(
+        style_name,
         background=[
-            ("active",  t.get("scrollbar_hover", "#484848")),
-            ("!active", t.get("scrollbar",       "#383838")),
-        ]
+            ("pressed", pressed_color),
+            ("active", hover_color),
+            ("!active", thumb_color),
+        ],
+        lightcolor=[
+            ("pressed", pressed_color),
+            ("active", hover_color),
+            ("!active", thumb_color),
+        ],
+        darkcolor=[
+            ("pressed", pressed_color),
+            ("active", hover_color),
+            ("!active", thumb_color),
+        ],
     )
     return ttk.Scrollbar(parent, orient=orient, style=style_name, **kwargs)
 
@@ -154,11 +179,20 @@ class DiffViewer(tk.Frame):
     Inspired by GitHub / VSCode / Beyond Compare diff UI.
     """
 
-    def __init__(self, parent, theme, word_wrap: bool = False, **kwargs):
+    def __init__(self, parent, theme, word_wrap: bool = False,
+                 font_size=None, on_zoom=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.theme = theme
         self._word_wrap = word_wrap
+        self._font_size = font_size or theme["font_mono"][1]
+        self._on_zoom = on_zoom
         self._build_ui()
+
+    def _mono_font(self, bold: bool = False, size_delta: int = 0) -> tuple:
+        weight = ("bold",) if bold else ()
+        return _cjk_font((self.theme["font_mono"][0],
+                          self._font_size + size_delta,
+                          *weight))
 
     def _build_ui(self):
         t = self.theme
@@ -195,7 +229,7 @@ class DiffViewer(tk.Frame):
 
         self.left_text = tk.Text(self.left_frame,
             bg=t["diff_equal_bg"], fg=t["diff_equal_fg"],
-            font=_cjk_font(t["font_mono"]), wrap=wrap_mode,
+            font=self._mono_font(), wrap=wrap_mode,
             relief="flat", bd=0, state="disabled",
             selectbackground=t["selection"], cursor="arrow")
         self.left_scroll_y = themed_scrollbar(self.left_frame, t,
@@ -230,7 +264,7 @@ class DiffViewer(tk.Frame):
 
         self.right_text = tk.Text(self.right_frame,
             bg=t["diff_equal_bg"], fg=t["diff_equal_fg"],
-            font=_cjk_font(t["font_mono"]), wrap=wrap_mode,
+            font=self._mono_font(), wrap=wrap_mode,
             relief="flat", bd=0, state="disabled",
             selectbackground=t["selection"], cursor="arrow")
         self.right_scroll_y = themed_scrollbar(self.right_frame, t,
@@ -248,10 +282,13 @@ class DiffViewer(tk.Frame):
 
         self._configure_tags(self.left_text)
         self._configure_tags(self.right_text)
+        if self._on_zoom:
+            self.left_text.bind("<Control-MouseWheel>", self._on_zoom)
+            self.right_text.bind("<Control-MouseWheel>", self._on_zoom)
 
     def _configure_tags(self, widget: tk.Text):
         t = self.theme
-        mono_bold = (t["font_mono"][0], t["font_mono"][1], "bold")
+        mono_bold = self._mono_font(bold=True)
 
         widget.tag_configure("equal",
             background=t["diff_equal_bg"],
@@ -282,7 +319,13 @@ class DiffViewer(tk.Frame):
 
         widget.tag_configure("line_num",
             foreground=t["diff_line_num_fg"],
-            font=(t["font_mono"][0], t["font_mono"][1] - 1))
+            font=self._mono_font(size_delta=-1))
+
+    def set_font_size(self, font_size: int):
+        self._font_size = font_size
+        for widget in (self.left_text, self.right_text):
+            widget.config(font=self._mono_font())
+            self._configure_tags(widget)
 
     def _left_yscroll(self, *args):
         self.left_scroll_y.set(*args)
@@ -424,12 +467,6 @@ class DiffViewer(tk.Frame):
         self.stats_label.config(bg=t["diff_header_bg"], fg=t["diff_header_fg"])
         self.left_label.config(bg=t["diff_header_bg"], fg=t["diff_del_fg"])
         self.right_label.config(bg=t["diff_header_bg"], fg=t["diff_add_fg"])
-        for sb in (self.left_scroll_y, self.right_scroll_y):
-            sb.config(
-                bg=t.get("scrollbar", "#383838"),
-                troughcolor=t.get("bg2", "#141414"),
-                activebackground=t.get("scrollbar_hover", "#484848"),
-            )
         for widget in (self.left_text, self.right_text):
             widget.config(
                 bg=t["diff_equal_bg"], fg=t["diff_equal_fg"],

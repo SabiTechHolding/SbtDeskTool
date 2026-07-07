@@ -38,7 +38,7 @@ DEFAULT_SETTINGS = {
     "tran_auto": True,
     "diff_auto": True,
     "word_wrap": True,
-    "window_effect": "solid",
+    "window_effect": "blur",
     "window_width": 980,
     "window_height": 640,
     "compact_width": 500,
