@@ -21,7 +21,9 @@ _DEFAULT_ENGINE = list(ENGINES.keys())[0]
 FONT_MIN, FONT_MAX = 7, 28
 WINDOW_EFFECTS = [
     ("solid", "◎ Solid", 1.00, False),
-    ("blur", "◍ Blur", 0.99, True),
+    ("blur", "◍ Blur", 0.98, True),
+    ("frosted", "◐ Frosted", 0.92, True),
+    ("transp", "○ Transparent", 0.85, False),
     ("dim", "◑ Dim", 0.88, False),
     ("ghost", "◌ Ghost", 0.80, False),
     ("clear", "□ Clear", 0.45, False),
