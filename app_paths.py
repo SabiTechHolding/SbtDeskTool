@@ -41,7 +41,10 @@ def _candidate_dirs():
     if env_dir:
         candidates.append(env_dir)
 
-    candidates.append(app_dir())
+    bundled_dir = app_dir()
+    bundled_is_unc = bundled_dir.startswith("\\\\")
+    if not bundled_is_unc:
+        candidates.append(bundled_dir)
 
     for env_name in ("LOCALAPPDATA", "APPDATA"):
         base = os.environ.get(env_name)
@@ -53,6 +56,8 @@ def _candidate_dirs():
         candidates.append(os.path.join(home, "AppData", "Local", APP_NAME))
 
     candidates.append(os.path.join(tempfile.gettempdir(), APP_NAME))
+    if bundled_is_unc:
+        candidates.append(bundled_dir)
 
     unique = []
     seen = set()

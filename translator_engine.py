@@ -14,6 +14,8 @@ import urllib.error
 import json
 import ssl
 import socket
+import subprocess
+import sys
 
 try:
     from logger import log
@@ -79,6 +81,16 @@ def _get_system_proxy() -> dict:
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
         )
+        try:
+            auto_config, _ = winreg.QueryValueEx(key, "AutoConfigURL")
+            log.debug(f"WinINet proxy PAC detected: {auto_config}")
+        except Exception:
+            pass
+        try:
+            auto_detect, _ = winreg.QueryValueEx(key, "AutoDetect")
+            log.debug(f"WinINet proxy auto-detect: {auto_detect}")
+        except Exception:
+            pass
         enabled, _ = winreg.QueryValueEx(key, "ProxyEnable")
         if enabled:
             server, _ = winreg.QueryValueEx(key, "ProxyServer")
@@ -90,6 +102,25 @@ def _get_system_proxy() -> dict:
     except Exception as e:
         log.debug(f"No system proxy or registry read failed: {e}")
     return proxy
+
+
+def _log_winhttp_proxy_once():
+    if getattr(_log_winhttp_proxy_once, "_done", False) or sys.platform != "win32":
+        return
+    _log_winhttp_proxy_once._done = True
+    try:
+        proc = subprocess.run(
+            ["netsh", "winhttp", "show", "proxy"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        text = (proc.stdout or proc.stderr).decode("utf-8", errors="replace").strip()
+        if text:
+            log.debug("WinHTTP proxy: " + " | ".join(line.strip() for line in text.splitlines() if line.strip()))
+    except Exception as e:
+        log.debug(f"WinHTTP proxy check failed: {e}")
 
 
 def _build_opener(proxy: dict = None, ssl_verify: bool = True) -> urllib.request.OpenerDirector:
@@ -115,6 +146,8 @@ def _build_opener(proxy: dict = None, ssl_verify: bool = True) -> urllib.request
 
 
 def _proxy_label(proxy) -> str:
+    if proxy == "windows":
+        return "windows-proxy"
     if proxy is None:
         return "system-proxy"
     if proxy:
@@ -135,6 +168,8 @@ def _network_hint(error) -> str:
         return "DNS lookup failed. Check DNS, VPN, proxy, or remote-session network settings."
     if isinstance(reason, ssl.SSLError):
         return "SSL certificate/inspection error. Check corporate proxy or certificate trust."
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "Windows/PowerShell web request timed out. Proxy/PAC route may be unreachable from this process."
     return str(reason)
 
 
@@ -148,6 +183,51 @@ def _do_request(full_url: str, timeout: int, opener) -> bytes:
     req.add_header("Accept-Language", "en-US,en;q=0.9")
     with opener.open(req, timeout=timeout) as resp:
         return resp.read()
+
+
+def _do_request_powershell(full_url: str, timeout: int) -> bytes:
+    """Use Windows PowerShell/.NET networking as a corporate proxy/PAC fallback."""
+    if sys.platform != "win32":
+        raise OSError("PowerShell fallback is only available on Windows")
+
+    script = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+$proxy = [System.Net.WebRequest]::DefaultWebProxy
+if ($proxy -ne $null) {
+    $proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
+}
+$headers = @{
+    'User-Agent' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Accept' = 'application/json, text/plain, */*'
+    'Accept-Language' = 'en-US,en;q=0.9'
+}
+$resp = Invoke-WebRequest -Uri $payload.url -UseBasicParsing -TimeoutSec $payload.timeout -Headers $headers
+[Console]::Out.Write($resp.Content)
+"""
+    startupinfo = None
+    creationflags = 0
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    payload = json.dumps({"url": full_url, "timeout": timeout})
+    proc = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        input=payload.encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout + 8,
+        startupinfo=startupinfo,
+        creationflags=creationflags,
+    )
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise OSError(err or f"PowerShell exited with code {proc.returncode}")
+    return proc.stdout
 
 
 def _parse_gtx_response(data) -> tuple:
@@ -186,19 +266,27 @@ class GoogleTranslateEngine:
         self._working_strategy: int = -1
 
     def _make_strategies(self, query: str) -> list:
-        """Return list of (url, proxy, ssl_verify, timeout) tuples."""
+        """Return list of (url, proxy, ssl_verify, timeout, transport) tuples."""
+        _log_winhttp_proxy_once()
         configured_proxy = _get_system_proxy()
         system_proxy = configured_proxy or None
         strategies = []
         for endpoint in self._ENDPOINTS:
             url = f"{endpoint}?{query}"
             strategies += [
-                (url, system_proxy, True,  12),   # system/configured proxy, SSL on
-                (url, system_proxy, False, 12),   # system/configured proxy, SSL off
-                (url, {},           True,  15),   # forced direct, SSL on
-                (url, {},           False, 15),   # forced direct, SSL off
+                (url, system_proxy, True,  12, "urllib"),      # system/configured proxy
+                (url, "windows",    True,  25, "powershell"),  # Windows proxy/PAC/default creds
+                (url, system_proxy, False, 12, "urllib"),      # SSL off for MITM edge cases
+                (url, {},           True,  15, "urllib"),      # forced direct
+                (url, {},           False, 15, "urllib"),      # forced direct, SSL off
             ]
         return strategies
+
+    def _request_with_strategy(self, url, proxy, ssl_verify, timeout, transport) -> bytes:
+        if transport == "powershell":
+            return _do_request_powershell(url, timeout)
+        opener = _build_opener(proxy, ssl_verify)
+        return _do_request(url, timeout, opener)
 
     def translate(self, text: str, src: str = "auto", dest: str = "en") -> dict:
         if not text.strip():
@@ -219,13 +307,12 @@ class GoogleTranslateEngine:
         # If we have a cached working strategy, try it first
         if self._working_strategy >= 0:
             idx = self._working_strategy
-            url, proxy, ssl_verify, timeout = strategies[idx]
+            url, proxy, ssl_verify, timeout, transport = strategies[idx]
             proxy_label = _proxy_label(proxy)
             ssl_label = "ssl-on" if ssl_verify else "ssl-off"
-            log.debug(f"Using cached strategy {idx} ({proxy_label}, {ssl_label})")
+            log.debug(f"Using cached strategy {idx} ({proxy_label}, {ssl_label}, {transport})")
             try:
-                opener = _build_opener(proxy, ssl_verify)
-                raw = _do_request(url, timeout, opener)
+                raw = self._request_with_strategy(url, proxy, ssl_verify, timeout, transport)
                 data = json.loads(raw.decode("utf-8"))
                 translated, detected = _parse_gtx_response(data)
                 if not detected:
@@ -236,7 +323,7 @@ class GoogleTranslateEngine:
                     "detected_lang": detected,
                     "source": self.name,
                 }
-            except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as e:
+            except (urllib.error.URLError, socket.timeout, TimeoutError, OSError, subprocess.SubprocessError) as e:
                 # Network error — reset cache and fall through to full retry
                 log.warning(f"Cached strategy {idx} failed ({type(e).__name__}: {e}), resetting cache")
                 self._working_strategy = -1
@@ -246,13 +333,12 @@ class GoogleTranslateEngine:
 
         # Full retry — try all strategies in order
         last_error = None
-        for i, (url, proxy, ssl_verify, timeout) in enumerate(strategies):
+        for i, (url, proxy, ssl_verify, timeout, transport) in enumerate(strategies):
             proxy_label = _proxy_label(proxy)
             ssl_label = "ssl-on" if ssl_verify else "ssl-off"
-            log.debug(f"Attempt {i+1}/{len(strategies)}: {proxy_label} {ssl_label}")
+            log.debug(f"Attempt {i+1}/{len(strategies)}: {proxy_label} {ssl_label} {transport}")
             try:
-                opener = _build_opener(proxy, ssl_verify)
-                raw = _do_request(url, timeout, opener)
+                raw = self._request_with_strategy(url, proxy, ssl_verify, timeout, transport)
                 data = json.loads(raw.decode("utf-8"))
                 translated, detected = _parse_gtx_response(data)
                 if not detected:
@@ -266,7 +352,7 @@ class GoogleTranslateEngine:
                     "detected_lang": detected,
                     "source": self.name,
                 }
-            except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as e:
+            except (urllib.error.URLError, socket.timeout, TimeoutError, OSError, subprocess.SubprocessError) as e:
                 log.warning(f"Attempt {i+1} network error: {type(e).__name__}: {e}")
                 last_error = e
             except Exception as e:
