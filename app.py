@@ -98,7 +98,9 @@ class SbtDeskTranApp:
 
         self._save_timer = None   # debounce handle for _save_settings
 
-        self.root.title("SbtDeskTran")
+
+        from version import __version__
+        self.root.title(f"SbtDeskTran v{__version__}")
         self.root.configure(bg=self.theme["bg"])
 
         self._setup_window()
