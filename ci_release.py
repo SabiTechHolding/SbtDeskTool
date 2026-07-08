@@ -111,22 +111,24 @@ def change_summary(base_ref: str) -> str:
 
 def ensure_version_changes(version: str, base_ref: str = "") -> bool:
     base_ref = base_ref or previous_release_ref()
-    before = file_at_ref(base_ref, VERSION_CHANGES).strip()
     current = current_changes_text()
 
-    if current and current != before and not is_placeholder_changes(current):
+    if not current or is_placeholder_changes(current):
+        existing = ""
+    elif f"v{version}" in current:
         return False
+    else:
+        existing = current
 
     today = dt.date.today().isoformat()
-    existing = "" if is_placeholder_changes(current) else current
-    existing = existing or "SbtDeskTran version changes"
+    content = existing or "SbtDeskTran version changes"
     section = (
         f"\n\n## v{version} - {today}\n\n"
         "Auto-generated because version_changes.txt had no manual changes since "
         f"{base_ref}.\n\n"
         f"{change_summary(base_ref)}\n"
     )
-    VERSION_CHANGES.write_text(existing.rstrip() + section, encoding="utf-8")
+    VERSION_CHANGES.write_text(content.rstrip() + section, encoding="utf-8")
     return True
 
 
