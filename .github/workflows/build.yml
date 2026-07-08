@@ -41,7 +41,7 @@ jobs:
 
       - name: Ensure version changes
         run: |
-          python ci_release.py ensure-changes ${{ steps.version.outputs.version }} --commit
+          python ci_release.py ensure-changes ${{ steps.version.outputs.version }}
 
       - name: Build EXE with PyInstaller
         run: |
