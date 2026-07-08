@@ -208,16 +208,13 @@ class DiffViewer(tk.Frame):
             font=t["font_ui"], anchor="w", padx=8)
 
         # ── Side-by-side panes: pure grid, equal columns ─────────────────────
-        self.pane_frame = tk.Frame(self, bg=t["bg2"])
+        self.pane_frame = tk.PanedWindow(self, orient=tk.HORIZONTAL,
+            bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         self.pane_frame.pack(fill="both", expand=True)
-        self.pane_frame.columnconfigure(0, weight=1, uniform="half")
-        self.pane_frame.columnconfigure(1, weight=0, minsize=2)
-        self.pane_frame.columnconfigure(2, weight=1, uniform="half")
-        self.pane_frame.rowconfigure(0, weight=1)
 
         # ── Left pane ────────────────────────────────────────────────────────
         self.left_frame = tk.Frame(self.pane_frame, bg=t["bg2"])
-        self.left_frame.grid(row=0, column=0, sticky="nsew")
+        self.pane_frame.add(self.left_frame, stretch="always", minsize=100)
         self.left_frame.rowconfigure(1, weight=1)
         self.left_frame.columnconfigure(0, weight=1)
 
@@ -246,13 +243,9 @@ class DiffViewer(tk.Frame):
             self.left_scroll_x.grid(row=2, column=0, sticky="ew")
             self.left_frame.rowconfigure(2, weight=0)
 
-        # Separator
-        tk.Frame(self.pane_frame, bg=t["border"], width=2).grid(
-            row=0, column=1, sticky="ns")
-
         # ── Right pane ───────────────────────────────────────────────────────
         self.right_frame = tk.Frame(self.pane_frame, bg=t["bg2"])
-        self.right_frame.grid(row=0, column=2, sticky="nsew")
+        self.pane_frame.add(self.right_frame, stretch="always", minsize=100)
         self.right_frame.rowconfigure(1, weight=1)
         self.right_frame.columnconfigure(0, weight=1)
 
@@ -327,6 +320,72 @@ class DiffViewer(tk.Frame):
             widget.config(font=self._mono_font())
             self._configure_tags(widget)
 
+    def set_sash_position(self, x: int):
+        try:
+            y = self.pane_frame.sash_coord(0)[1]
+            self.pane_frame.sash_place(0, max(100, x), y)
+        except Exception:
+            pass
+
+    def set_sash_ratio(self, ratio):
+        try:
+            width = max(1, self.pane_frame.winfo_width())
+            x = int(width * max(0.1, min(0.9, float(ratio))))
+            self.set_sash_position(x)
+        except Exception:
+            pass
+
+    def get_sash_position(self) -> int:
+        try:
+            return self.pane_frame.sash_coord(0)[0]
+        except Exception:
+            return 0
+
+    def get_sash_ratio(self) -> float:
+        try:
+            return self.get_sash_position() / max(1, self.pane_frame.winfo_width())
+        except Exception:
+            return 0.5
+
+    def bind_sash_release(self, callback):
+        self.pane_frame.bind("<ButtonRelease-1>", callback, add="+")
+
+    def snapshot(self):
+        return {
+            "left": self._snapshot_widget(self.left_text),
+            "right": self._snapshot_widget(self.right_text),
+            "stats": self.stats_label.cget("text"),
+        }
+
+    def restore_snapshot(self, snapshot):
+        if not snapshot:
+            return
+        self.stats_label.config(text=snapshot.get("stats", ""))
+        self._restore_widget_snapshot(self.left_text, snapshot.get("left", {}))
+        self._restore_widget_snapshot(self.right_text, snapshot.get("right", {}))
+
+    def _snapshot_widget(self, widget):
+        data = {"text": widget.get("1.0", "end-1c"), "tags": []}
+        for tag in ("equal", "delete_line", "insert_line", "delete_inline",
+                    "insert_inline", "placeholder", "line_num"):
+            ranges = widget.tag_ranges(tag)
+            data["tags"].append((tag, [(str(ranges[i]), str(ranges[i + 1]))
+                                       for i in range(0, len(ranges), 2)]))
+        return data
+
+    def _restore_widget_snapshot(self, widget, data):
+        widget.config(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", data.get("text", ""))
+        self._configure_tags(widget)
+        for tag, ranges in data.get("tags", []):
+            for start, end in ranges:
+                try:
+                    widget.tag_add(tag, start, end)
+                except Exception:
+                    pass
+        widget.config(state="disabled")
+
     def _left_yscroll(self, *args):
         self.left_scroll_y.set(*args)
         self.right_text.yview_moveto(args[0])
@@ -342,30 +401,36 @@ class DiffViewer(tk.Frame):
     def _left_xscroll(self, *args):
         try:
             self.left_scroll_x.set(*args)
+            self.right_scroll_x.set(*args)
+            self.right_text.xview_moveto(args[0])
         except Exception:
             pass
 
     def _right_xscroll(self, *args):
         try:
+            self.left_scroll_x.set(*args)
             self.right_scroll_x.set(*args)
+            self.left_text.xview_moveto(args[0])
         except Exception:
             pass
 
     def _sync_scroll_x_left(self, *args):
         self.left_text.xview(*args)
-
-    def _sync_scroll_x_right(self, *args):
         self.right_text.xview(*args)
 
-    def render(self, old_text: str, new_text: str):
+    def _sync_scroll_x_right(self, *args):
+        self.left_text.xview(*args)
+        self.right_text.xview(*args)
+
+    def render(self, old_text: str, new_text: str, ignore_whitespace: bool = False):
         """Render a diff between old_text and new_text."""
-        chunks = compute_line_diff(old_text, new_text)
+        chunks = compute_line_diff(old_text, new_text, ignore_whitespace=ignore_whitespace)
         stats = get_diff_stats(chunks)
         added = stats["added"]
         removed = stats["removed"]
         blocks = stats["changed_blocks"]
         self.stats_label.config(
-            text=f"   +{added} added   −{removed} removed   "
+            text=f"   +{added} added   -{removed} removed   "
                  f"{blocks} changed block{'s' if blocks != 1 else ''}"
         )
 

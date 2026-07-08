@@ -260,6 +260,7 @@ class GoogleTranslateEngine:
         "https://translate.googleapis.com/translate_a/single",
         "https://translate.google.com/translate_a/single",
     ]
+    _MAX_CHUNK_CHARS = 700
 
     def __init__(self):
         # Index of the last working strategy (-1 = not yet found)
@@ -288,10 +289,42 @@ class GoogleTranslateEngine:
         opener = _build_opener(proxy, ssl_verify)
         return _do_request(url, timeout, opener)
 
-    def translate(self, text: str, src: str = "auto", dest: str = "en") -> dict:
-        if not text.strip():
-            return {"translated": "", "detected_lang": src, "source": self.name}
+    def _split_segment(self, text: str, max_chars: int) -> list:
+        chunks = []
+        separators = ("\n\n", "\n", ". ", "。", "! ", "? ", "; ", ", ", " ")
+        while len(text) > max_chars:
+            best = -1
+            for sep in separators:
+                pos = text.rfind(sep, 0, max_chars)
+                if pos > best:
+                    best = pos + len(sep)
+            if best < max_chars // 3:
+                best = max_chars
+            chunks.append(text[:best])
+            text = text[best:]
+        if text:
+            chunks.append(text)
+        return chunks
 
+    def _split_text(self, text: str, max_chars: int = None) -> list:
+        max_chars = max_chars or self._MAX_CHUNK_CHARS
+        chunks = []
+        current = ""
+        for line in text.splitlines(keepends=True) or [text]:
+            parts = self._split_segment(line, max_chars)
+            for part in parts:
+                if current and len(current) + len(part) > max_chars:
+                    chunks.append(current)
+                    current = ""
+                current += part
+                if len(current) >= max_chars:
+                    chunks.append(current)
+                    current = ""
+        if current:
+            chunks.append(current)
+        return chunks
+
+    def _translate_single(self, text: str, src: str = "auto", dest: str = "en") -> dict:
         log.debug(f"Translate request: src={src} dest={dest} chars={len(text)}")
 
         params = {
@@ -368,6 +401,31 @@ class GoogleTranslateEngine:
         else:
             hint = _network_hint(last_error)
         raise TranslationError(f"Translation failed: {hint}")
+
+    def translate(self, text: str, src: str = "auto", dest: str = "en") -> dict:
+        if not text.strip():
+            return {"translated": "", "detected_lang": src, "source": self.name}
+
+        chunks = self._split_text(text)
+        if len(chunks) == 1:
+            return self._translate_single(text, src=src, dest=dest)
+
+        log.info(f"Large translate request split into {len(chunks)} chunks ({len(text)} chars)")
+        translated_parts = []
+        detected_lang = src
+        for idx, chunk in enumerate(chunks, start=1):
+            log.debug(f"Translating chunk {idx}/{len(chunks)} chars={len(chunk)}")
+            result = self._translate_single(chunk, src=src, dest=dest)
+            translated_parts.append(result.get("translated", ""))
+            detected = result.get("detected_lang")
+            if detected and detected != "auto":
+                detected_lang = detected
+        return {
+            "translated": "".join(translated_parts),
+            "detected_lang": detected_lang,
+            "source": self.name,
+            "chunks": len(chunks),
+        }
 
 
 # Registry of available engines
