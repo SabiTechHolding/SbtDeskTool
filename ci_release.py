@@ -6,6 +6,7 @@ Typical CI flow:
   python ci_release.py ensure-changes v2026.07.07.8 --commit
   python -m PyInstaller ...
   python ci_release.py assets v2026.07.07.8
+  python ci_release.py release v2026.07.07.8
 """
 import argparse
 import datetime as dt
@@ -136,6 +137,84 @@ def commit_version_changes(version: str, push: bool) -> None:
             run_git("push")
 
 
+def extract_release_body(version: str) -> str:
+    """Extract the release notes section for *version* from version_changes.txt.
+
+    Section format in version_changes.txt::
+
+        ---
+        v{version} — Title
+        ---
+
+        body...
+
+    The section runs from the first blank line after the second ``---``
+    until the next ``---`` separator or end of file.
+    """
+    if not VERSION_CHANGES.exists():
+        raise SystemExit(f"Missing version changes file: {VERSION_CHANGES}")
+    text = VERSION_CHANGES.read_text(encoding="utf-8")
+    ver_tag = f"v{version}"
+    lines = text.splitlines()
+
+    # Find the version title line (between two --- separators)
+    title_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith(ver_tag):
+            title_idx = i
+            break
+    if title_idx < 0:
+        raise SystemExit(f"Section for v{version} not found in {VERSION_CHANGES}")
+
+    # Find the closing --- after the title
+    sep_idx = -1
+    for i in range(title_idx + 1, len(lines)):
+        if lines[i].startswith("---"):
+            sep_idx = i
+            break
+
+    # Collect body starting from the first non-blank line after the separator
+    start = sep_idx + 1 if sep_idx >= 0 else title_idx + 1
+    body = []
+    for i in range(start, len(lines)):
+        if lines[i].startswith("---"):
+            break
+        body.append(lines[i])
+    return "\n".join(body).strip()
+
+
+def create_release(version: str, *, push_tag: bool = False, draft: bool = False) -> None:
+    """Create a GitHub release for *version* using the ``gh`` CLI."""
+    tag = f"v{version}"
+    body = extract_release_body(version)
+
+    if push_tag:
+        run_git("tag", tag)
+        run_git("push", "origin", tag)
+
+    zip_path = DIST_DIR / f"SbtDeskTran-{version}.zip"
+    if not zip_path.exists():
+        print(f"Asset not found at {zip_path}; creating release without asset.", file=sys.stderr)
+        zip_path_arg = ""
+    else:
+        zip_path_arg = str(zip_path)
+
+    cmd = [
+        "gh", "release", "create", tag,
+        "--title", f"SbtDeskTran {tag}",
+        "--notes", body,
+    ]
+    if draft:
+        cmd.append("--draft")
+    if zip_path_arg:
+        cmd.append(zip_path_arg)
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(f"gh release create failed:\n{result.stderr.strip()}")
+    print(f"Release {tag} created successfully.")
+
+
 def create_assets(version: str) -> None:
     DIST_DIR.mkdir(exist_ok=True)
     exe_path = DIST_DIR / APP_EXE_NAME
@@ -176,6 +255,13 @@ def main() -> None:
     assets_parser = subparsers.add_parser("assets")
     assets_parser.add_argument("version", nargs="?")
 
+    release_parser = subparsers.add_parser("release")
+    release_parser.add_argument("version", nargs="?")
+    release_parser.add_argument("--push-tag", action="store_true",
+        help="Create and push the Git tag before creating the release")
+    release_parser.add_argument("--draft", action="store_true",
+        help="Create the release as a draft")
+
     args = parser.parse_args()
 
     if args.command == "set-version":
@@ -188,6 +274,12 @@ def main() -> None:
         print("version_changes=updated" if changed else "version_changes=manual")
     elif args.command == "assets":
         create_assets(version_arg(args.version))
+    elif args.command == "release":
+        create_release(
+            version_arg(args.version),
+            push_tag=args.push_tag,
+            draft=args.draft,
+        )
     else:
         sys.exit(2)
 
