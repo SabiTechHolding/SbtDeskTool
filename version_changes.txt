@@ -13,7 +13,7 @@ New features:
 - Note Auto Save with dirty-state indicator (✓ Saved / ● Unsaved).
 - Self-updater module (checks GitHub releases, replaces .exe).
 - CI release helpers (version bump, changelog verification, asset
-  packaging).
+  packaging, GitHub Release creation with release notes).
 - Placeholder stipple pattern for diff empty lines.
 
 Diff Engine:

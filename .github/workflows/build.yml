@@ -1,4 +1,4 @@
-name: Build EXE
+name: Build & Release
 
 on:
   push:
@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,7 +37,11 @@ jobs:
           $version = "$date.$build"
           echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "sha=$sha" >> $env:GITHUB_OUTPUT
-          Set-Content -Path version.py -Value "__version__ = '$version'"
+          ci_release.py set-version $version
+
+      - name: Ensure version changes
+        run: |
+          ci_release.py ensure-changes ${{ steps.version.outputs.version }} --commit
 
       - name: Build EXE with PyInstaller
         run: |
@@ -55,12 +61,10 @@ jobs:
             --noconfirm `
             main.py
 
-      - name: Package EXE into ZIP
-        run: |
-          Compress-Archive -Path dist\SbtDeskTran.exe `
-            -DestinationPath dist\SbtDeskTran-${{ steps.version.outputs.version }}.zip
+      - name: Package release assets
+        run: ci_release.py assets ${{ steps.version.outputs.version }}
 
-      - name: Upload ZIP as artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: SbtDeskTran-${{ steps.version.outputs.version }}
@@ -68,14 +72,7 @@ jobs:
           retention-days: 30
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: "v${{ steps.version.outputs.version }}"
-          body: |
-            **Version:** `${{ steps.version.outputs.version }}`
-            **Commit:** `${{ steps.version.outputs.sha }}`
-            **Branch:** `${{ github.ref_name }}`
-            **Triggered by:** ${{ github.actor }}
-          files: dist/SbtDeskTran-${{ steps.version.outputs.version }}.zip
-          prerelease: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ci_release.py release ${{ steps.version.outputs.version }} --push-tag
