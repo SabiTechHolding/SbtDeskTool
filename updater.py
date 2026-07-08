@@ -14,12 +14,12 @@ import sys
 import tempfile
 import threading
 import urllib.parse
-import urllib.request
 import zipfile
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 from app_paths import app_dir
+from network import request_with_strategies
 from version import __version__
 
 
@@ -66,13 +66,11 @@ def is_supported_runtime() -> bool:
     return bool(getattr(sys, "frozen", False)) and sys.platform == "win32"
 
 
-def _read_url(url: str, timeout: int = 20) -> bytes:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": f"SbtDeskTran/{current_version()}"},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read()
+def _read_url(url: str, timeout: int = 25, settings: dict = None) -> bytes:
+    ua = f"SbtDeskTran/{current_version()}"
+    data, _ = request_with_strategies(url, user_agent=ua, working_strategy=-1,
+                                      settings=settings)
+    return data
 
 
 def _find_release_asset(release: dict, *names: str) -> Optional[dict]:
@@ -106,12 +104,12 @@ def _asset_download_url(asset: Optional[dict]) -> str:
     return str(asset.get("browser_download_url", "") or "")
 
 
-def check_for_update() -> Optional[UpdateInfo]:
+def check_for_update(settings: dict = None) -> Optional[UpdateInfo]:
     url = release_api_url()
     if not url:
         return None
 
-    raw = _read_url(url)
+    raw = _read_url(url, settings=settings)
     release = json.loads(raw.decode("utf-8-sig"))
     version = str(release.get("tag_name", "")).lstrip("v").strip()
     update_asset = _find_update_asset(release)
@@ -129,7 +127,7 @@ def check_for_update() -> Optional[UpdateInfo]:
     notes_url = _asset_download_url(notes_asset)
     if notes_url:
         try:
-            notes = _read_url(notes_url, timeout=10).decode("utf-8-sig").strip()
+            notes = _read_url(notes_url, timeout=10, settings=settings).decode("utf-8-sig").strip()
         except Exception:
             notes = notes or f"Version {version} is available."
 
@@ -143,27 +141,28 @@ def check_for_update() -> Optional[UpdateInfo]:
 
 
 def check_for_update_async(
-    callback: Callable[[Optional[UpdateInfo], Optional[Exception]], None]
+    callback: Callable[[Optional[UpdateInfo], Optional[Exception]], None],
+    settings: dict = None,
 ) -> None:
     def worker():
         try:
-            callback(check_for_update(), None)
+            callback(check_for_update(settings=settings), None)
         except Exception as exc:
             callback(None, exc)
 
     threading.Thread(target=worker, daemon=True).start()
 
 
-def _download_to_temp(url: str) -> str:
+def _download_to_temp(url: str, settings: dict = None) -> str:
     suffix = ".zip" if urllib.parse.urlparse(url).path.lower().endswith(".zip") else ".exe"
     fd, path = tempfile.mkstemp(prefix="SbtDeskTran-update-", suffix=suffix)
     os.close(fd)
     try:
-        with urllib.request.urlopen(
-            urllib.request.Request(url, headers={"User-Agent": f"SbtDeskTran/{current_version()}"}),
-            timeout=120,
-        ) as response, open(path, "wb") as out:
-            shutil.copyfileobj(response, out)
+        ua = f"SbtDeskTran/{current_version()}"
+        data, _ = request_with_strategies(url, user_agent=ua, working_strategy=-1,
+                                          settings=settings)
+        with open(path, "wb") as out:
+            out.write(data)
         return path
     except Exception:
         try:
@@ -226,7 +225,7 @@ endlocal
     return bat_path
 
 
-def download_and_stage_update(info: UpdateInfo, restart: bool = True) -> str:
+def download_and_stage_update(info: UpdateInfo, restart: bool = True, settings: dict = None) -> str:
     if not is_supported_runtime():
         raise RuntimeError("Auto-update is available only in the Windows executable build")
 
@@ -234,7 +233,7 @@ def download_and_stage_update(info: UpdateInfo, restart: bool = True) -> str:
     if os.path.normcase(os.path.abspath(sys.executable)) != os.path.normcase(os.path.abspath(current_exe)):
         current_exe = sys.executable
 
-    download_path = _download_to_temp(info.download_url)
+    download_path = _download_to_temp(info.download_url, settings=settings)
     new_exe = _extract_exe(download_path)
     return _write_helper_batch(new_exe, current_exe, restart)
 

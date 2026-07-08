@@ -257,7 +257,7 @@ def do_release(version: str, *, push_tag: bool = False, draft: bool = False) -> 
     zip_path = DIST_DIR / f"SbtDeskTran-{version}.zip"
     cmd = [
         "gh", "release", "create", tag,
-        "--title", f"SbtDeskTran {tag}",
+        "--title", f"{tag}",
         "--notes", notes,
     ]
     if draft:

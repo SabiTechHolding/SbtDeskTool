@@ -393,7 +393,7 @@ class SbtDeskTranApp:
 
             self.root.after(0, handle)
 
-        updater.check_for_update_async(on_checked)
+        updater.check_for_update_async(on_checked, settings=self.settings)
 
     def _prompt_update(self, info, parent=None):
         notes = f"\n\nVersion changes:\n{info.notes}" if info.notes else ""
@@ -409,7 +409,7 @@ class SbtDeskTranApp:
         def worker():
             try:
                 import updater
-                helper = updater.download_and_stage_update(info, restart=True)
+                helper = updater.download_and_stage_update(info, restart=True, settings=self.settings)
 
                 def done():
                     messagebox.showinfo(
@@ -1255,7 +1255,7 @@ class SbtDeskTranApp:
 
         def worker():
             try:
-                res = get_engine(eng_name).translate(text, src=src_code, dest=dest_code)
+                res = get_engine(eng_name).translate(text, src=src_code, dest=dest_code, settings=self.settings)
                 def done():
                     translated = res.get("translated","")
                     detected   = res.get("detected_lang", src_code)
