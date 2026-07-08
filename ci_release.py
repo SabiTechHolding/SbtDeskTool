@@ -48,13 +48,14 @@ def run_git(*args: str, check: bool = True) -> str:
     result = subprocess.run(
         ["git", *args],
         check=False,
-        text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
+    stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
     if check and result.returncode != 0:
-        raise SystemExit(result.stderr.strip() or f"git {' '.join(args)} failed")
-    return result.stdout.strip()
+        raise SystemExit(stderr.strip() or f"git {' '.join(args)} failed")
+    return stdout.strip()
 
 
 def git_success(*args: str) -> bool:
@@ -209,9 +210,12 @@ def create_release(version: str, *, push_tag: bool = False, draft: bool = False)
     if zip_path_arg:
         cmd.append(zip_path_arg)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True)
+    stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
+    stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
     if result.returncode != 0:
-        raise SystemExit(f"gh release create failed:\n{result.stderr.strip()}")
+        raise SystemExit(f"gh release create failed:\n{stderr.strip()}")
+    print(stdout.strip())
     print(f"Release {tag} created successfully.")
 
 
