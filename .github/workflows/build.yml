@@ -37,11 +37,11 @@ jobs:
           $version = "$date.$build"
           echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "sha=$sha" >> $env:GITHUB_OUTPUT
-          ci_release.py set-version $version
+          python ci_release.py set-version $version
 
       - name: Ensure version changes
         run: |
-          ci_release.py ensure-changes ${{ steps.version.outputs.version }} --commit
+          python ci_release.py ensure-changes ${{ steps.version.outputs.version }} --commit
 
       - name: Build EXE with PyInstaller
         run: |
@@ -62,7 +62,7 @@ jobs:
             main.py
 
       - name: Package release assets
-        run: ci_release.py assets ${{ steps.version.outputs.version }}
+        run: python ci_release.py assets ${{ steps.version.outputs.version }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -75,4 +75,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ci_release.py release ${{ steps.version.outputs.version }} --push-tag
+          python ci_release.py release ${{ steps.version.outputs.version }} --push-tag
