@@ -13,8 +13,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -33,33 +32,18 @@ jobs:
         run: |
           $date = Get-Date -Format "yyyy.MM.dd"
           $build = "${{ github.run_number }}"
-          $sha = "${{ github.sha }}".Substring(0, 7)
           $version = "$date.$build"
           echo "version=$version" >> $env:GITHUB_OUTPUT
-          echo "sha=$sha" >> $env:GITHUB_OUTPUT
           python ci_release.py set-version $version
 
-      - name: Ensure version changes
+      - name: Build EXE
         run: |
-          python ci_release.py ensure-changes ${{ steps.version.outputs.version }}
-
-      - name: Build EXE with PyInstaller
-        run: |
-          python -m PyInstaller `
-            --onefile `
-            --windowed `
-            --name "SbtDeskTran" `
-            --icon=icon.ico `
-            --collect-all tkinter `
-            --hidden-import tkinter `
-            --hidden-import tkinter.ttk `
-            --hidden-import json `
-            --hidden-import threading `
-            --hidden-import urllib.request `
-            --hidden-import urllib.parse `
-            --hidden-import urllib.error `
-            --noconfirm `
-            main.py
+          python -m PyInstaller --onefile --windowed --name "SbtDeskTran" `
+            --icon=icon.ico --collect-all tkinter `
+            --hidden-import tkinter --hidden-import tkinter.ttk `
+            --hidden-import json --hidden-import threading `
+            --hidden-import urllib.request --hidden-import urllib.parse --hidden-import urllib.error `
+            --noconfirm main.py
 
       - name: Package release assets
         run: python ci_release.py assets ${{ steps.version.outputs.version }}

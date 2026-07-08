@@ -2,6 +2,8 @@ SbtDeskTran version changes
 
 Keep release/change details here instead of putting them in the release body.
 
+Last released: v2026.07.08.9
+
 ----------------------------------------------------------------------
 v2026.07.08 — Editable diff, auto-save notes, large translate chunks, CI pipeline
 ----------------------------------------------------------------------
@@ -42,4 +44,3 @@ App:
 - Note delete now shows confirmation dialog.
 - Note save auto-creates new note if none selected.
 - Update check runs 1.5s after startup.
-
