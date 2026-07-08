@@ -4,6 +4,7 @@ similar to GitHub / VSCode / Beyond Compare style.
 Supports CJK (Japanese, Chinese, Korean) character-level tokenization.
 """
 import difflib
+import re
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
@@ -48,29 +49,33 @@ def _is_cjk_char(ch: str) -> bool:
     return any(lo <= cp <= hi for lo, hi in _CJK_RANGES)
 
 
+def _is_word_char(ch: str) -> bool:
+    return ch == "_" or ch.isalnum()
+
+
 def tokenize_inline(line: str) -> List[str]:
     """
     Smart tokenizer:
     - CJK scripts (Japanese, Chinese, Korean): each character is a separate token
-    - Latin / other scripts: words kept together (split on whitespace)
+    - Latin / other scripts: word chars kept together, punctuation split
     - Mixed lines handled correctly
     """
     tokens: List[str] = []
-    buf = ""        # accumulates non-CJK non-space chars
+    buf = ""        # accumulates word chars
 
     for ch in line:
-        if ch in (" ", "\t"):
-            if buf:
-                tokens.append(buf)
-                buf = ""
-            tokens.append(ch)
-        elif _is_cjk_char(ch):
+        if _is_cjk_char(ch):
             if buf:
                 tokens.append(buf)
                 buf = ""
             tokens.append(ch)   # each CJK char is its own token
+        elif _is_word_char(ch):
+            buf += ch
         else:
-            buf += ch           # accumulate Latin / other chars into a word
+            if buf:
+                tokens.append(buf)
+                buf = ""
+            tokens.append(ch)
 
     if buf:
         tokens.append(buf)
@@ -78,7 +83,41 @@ def tokenize_inline(line: str) -> List[str]:
     return tokens
 
 
-def compute_line_diff(old_text: str, new_text: str) -> List[DiffChunk]:
+def _normalize_whitespace_for_diff(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _can_char_diff_token(text: str) -> bool:
+    return bool(text) and not text.isspace() and not any(_is_cjk_char(ch) for ch in text)
+
+
+def _append_char_diff(
+    old_text: str,
+    new_text: str,
+    old_result: List[InlineToken],
+    new_result: List[InlineToken],
+):
+    matcher = difflib.SequenceMatcher(None, old_text, new_text, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            if i2 > i1:
+                old_result.append(InlineToken(old_text[i1:i2], "equal"))
+            if j2 > j1:
+                new_result.append(InlineToken(new_text[j1:j2], "equal"))
+        elif tag == "insert":
+            if j2 > j1:
+                new_result.append(InlineToken(new_text[j1:j2], "insert"))
+        elif tag == "delete":
+            if i2 > i1:
+                old_result.append(InlineToken(old_text[i1:i2], "delete"))
+        elif tag == "replace":
+            if i2 > i1:
+                old_result.append(InlineToken(old_text[i1:i2], "delete"))
+            if j2 > j1:
+                new_result.append(InlineToken(new_text[j1:j2], "insert"))
+
+
+def compute_line_diff(old_text: str, new_text: str, ignore_whitespace: bool = False) -> List[DiffChunk]:
     """Compute line-by-line diff between two texts."""
     old_lines = old_text.splitlines(keepends=True)
     new_lines = new_text.splitlines(keepends=True)
@@ -88,7 +127,13 @@ def compute_line_diff(old_text: str, new_text: str) -> List[DiffChunk]:
     if new_lines and not new_lines[-1].endswith("\n"):
         new_lines[-1] += "\n"
 
-    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    old_compare = old_lines
+    new_compare = new_lines
+    if ignore_whitespace:
+        old_compare = [_normalize_whitespace_for_diff(line) for line in old_lines]
+        new_compare = [_normalize_whitespace_for_diff(line) for line in new_lines]
+
+    matcher = difflib.SequenceMatcher(None, old_compare, new_compare, autojunk=False)
     chunks: List[DiffChunk] = []
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -104,9 +149,13 @@ def compute_line_diff(old_text: str, new_text: str) -> List[DiffChunk]:
 
 
 def compute_inline_diff(
-    old_line: str, new_line: str
+    old_line: str, new_line: str, word_diff: bool = True
 ) -> Tuple[List[InlineToken], List[InlineToken]]:
-    """Compute token-level inline diff for a pair of changed lines."""
+    """Compute inline diff for a pair of changed lines.
+
+    When word_diff is True, changed Latin tokens are highlighted as whole words.
+    When False, changed Latin tokens can be refined to character-level spans.
+    """
     old_tokens = tokenize_inline(old_line.rstrip("\n"))
     new_tokens = tokenize_inline(new_line.rstrip("\n"))
 
@@ -128,10 +177,20 @@ def compute_inline_diff(
             for t in old_tokens[i1:i2]:
                 old_result.append(InlineToken(t, "delete"))
         elif tag == "replace":
-            for t in old_tokens[i1:i2]:
-                old_result.append(InlineToken(t, "delete"))
-            for t in new_tokens[j1:j2]:
-                new_result.append(InlineToken(t, "insert"))
+            old_slice = old_tokens[i1:i2]
+            new_slice = new_tokens[j1:j2]
+            if (
+                not word_diff
+                and len(old_slice) == 1 and len(new_slice) == 1
+                and _can_char_diff_token(old_slice[0])
+                and _can_char_diff_token(new_slice[0])
+            ):
+                _append_char_diff(old_slice[0], new_slice[0], old_result, new_result)
+            else:
+                for t in old_slice:
+                    old_result.append(InlineToken(t, "delete"))
+                for t in new_slice:
+                    new_result.append(InlineToken(t, "insert"))
 
     return old_result, new_result
 

@@ -28,6 +28,9 @@ DEFAULT_SETTINGS = {
     "active_tab": "tran",
     "tran_auto": True,
     "diff_auto": True,
+    "diff_word_diff": True,
+    "diff_ignore_whitespace": False,
+    "note_auto_save": True,
     "word_wrap": True,
     "window_effect": "blur",
     "window_width": 980,
@@ -90,7 +93,9 @@ def main():
     root.focus_force()
 
     from app import SbtDeskTranApp
-    SbtDeskTranApp(root, settings, save_settings)
+    app = SbtDeskTranApp(root, settings, save_settings)
+
+    root.after(1500, app.check_for_updates)
 
     root.mainloop()
 

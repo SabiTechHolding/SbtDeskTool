@@ -1,0 +1,45 @@
+SbtDeskTran version changes
+
+Keep release/change details here instead of putting them in the release body.
+
+----------------------------------------------------------------------
+v2026.07.08 — Editable diff, auto-save notes, large translate chunks, CI pipeline
+----------------------------------------------------------------------
+
+New features:
+- VirtualDiffEditor: fully editable side-by-side diff view with
+  undo/redo, find/replace, minimap, detail panel, word-wrap toggle,
+  synchronized scrolling.
+- Note Auto Save with dirty-state indicator (✓ Saved / ● Unsaved).
+- Self-updater module (checks GitHub releases, replaces .exe).
+- CI release helpers (version bump, changelog verification, asset
+  packaging).
+- Placeholder stipple pattern for diff empty lines.
+
+Diff Engine:
+- Refined tokenizer: word chars and punctuation now split correctly
+  for more precise inline diffs.
+- Character-level diff for non-CJK replacement tokens when word
+  diff is off.
+- Whitespace-ignoring diff mode.
+
+Translator:
+- Auto-split large texts (>700 chars) into chunks to bypass Google
+  Translate length limits.
+- Translation options (engine, languages) now persist immediately.
+
+Widgets:
+- DiffViewer: replaced fixed grid with resizable PanedWindow (sash).
+- Synchronized horizontal scrolling between left/right panes.
+- Snapshot/restore API for widget state preservation.
+
+App:
+- Status bar shows per-panel metrics (chars, line, column,
+  selection length).
+- Font size tracked per-tab (translate, diff, note).
+- Compact/layout/theme/wrap toggles capture widget state before
+  rebuilding UI (no data loss on toggle).
+- Note delete now shows confirmation dialog.
+- Note save auto-creates new note if none selected.
+- Update check runs 1.5s after startup.
+

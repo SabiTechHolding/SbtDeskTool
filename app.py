@@ -10,7 +10,8 @@ from translator_engine import (
     LANGUAGES, LANG_CODE_TO_NAME, get_engine, ENGINES, TranslationError
 )
 from theme import THEMES
-from widgets import FlatButton, DiffViewer, themed_scrollbar
+from widgets import FlatButton, themed_scrollbar
+from virtual_diff_editor import VirtualDiffEditor
 from logger import log
 from app_paths import data_file, data_file_candidates
 
@@ -36,10 +37,23 @@ class FilterableCombobox(ttk.Combobox):
     def __init__(self, parent, all_values, on_select=None, **kwargs):
         self._all = list(all_values)
         self._on_select = on_select
+        self._user_postcommand = kwargs.pop("postcommand", None)
+        kwargs.setdefault("state", "readonly")
         super().__init__(parent, values=self._all, **kwargs)
+        self.configure(postcommand=self._begin_filter)
         self.bind("<KeyRelease>",         self._filter)
         self.bind("<FocusOut>",           self._restore)
         self.bind("<<ComboboxSelected>>", self._selected)
+
+    def _begin_filter(self):
+        self.config(state="normal")
+        self["values"] = self._all
+        try:
+            self.selection_range(0, "end")
+        except Exception:
+            pass
+        if self._user_postcommand:
+            self._user_postcommand()
 
     def _filter(self, event):
         nav = {"Return","Escape","Tab","Up","Down","Left","Right",
@@ -58,9 +72,11 @@ class FilterableCombobox(ttk.Combobox):
         m = next((v for v in self._all if v.lower() == typed.lower()), None)
         self.set(m if m else (self._all[0] if self._all else ""))
         self["values"] = self._all
+        self.config(state="readonly")
 
     def _selected(self, _=None):
         self["values"] = self._all
+        self.config(state="readonly")
         if self._on_select:
             self._on_select()
 
@@ -80,8 +96,16 @@ class SbtDeskTranApp:
         self._compact   = settings.get("compact_mode", False)
         self._layout    = settings.get("layout", "horizontal")
         self._tab       = settings.get("active_tab", "tran")
-        self._font_size = settings.get("font_size", 10)
+        default_font_size = settings.get("font_size", 10)
+        self._font_sizes = {
+            "tran": settings.get("font_size_tran", default_font_size),
+            "diff": settings.get("font_size_diff", default_font_size),
+            "note": settings.get("font_size_note", default_font_size),
+        }
+        self._font_size = self._font_sizes.get(self._tab, default_font_size)
         self._word_wrap = settings.get("word_wrap", True)
+        self._status_widget = None
+        self._status_panel = ""
         self._window_effect = settings.get("window_effect", settings.get("opacity_mode", "blur"))
         if self._window_effect not in [effect[0] for effect in WINDOW_EFFECTS]:
             self._window_effect = "blur"
@@ -92,10 +116,16 @@ class SbtDeskTranApp:
         self._note_timer = None
         self._src_cache  = ""
         self._dst_cache  = ""
+        self._src_snapshot = None
+        self._dst_snapshot = None
         # diff tab preserved text
         self._diff_left_cache  = ""
         self._diff_right_cache = ""
         self._note_body_cache  = ""
+        self._note_title_cache = None
+        self._note_dirty_cache = None
+        self._note_snapshot = None
+        self._note_dirty = False
 
         self._save_timer = None   # debounce handle for _save_settings
 
@@ -132,6 +162,7 @@ class SbtDeskTranApp:
 
     def _on_close(self):
         """Standard window close — save and exit."""
+        self._flush_note_auto_save()
         self.save_fn(self.settings)
         self.root.destroy()
 
@@ -239,6 +270,9 @@ class SbtDeskTranApp:
         right = tk.Frame(self.topbar, bg=t["bg2"])
         right.pack(side="right", fill="y", padx=4)
 
+        FlatButton(right, text="ⓘ About", theme=t,
+            command=self._show_about).pack(side="right", padx=2)
+
         # Theme toggle
         self.theme_btn = FlatButton(right,
             text="☀ Light" if t["name"] == "dark" else "🌙 Dark",
@@ -277,6 +311,129 @@ class SbtDeskTranApp:
 
         tk.Frame(self.topbar, bg=t["border"], height=2).pack(side="bottom", fill="x")
 
+    def _show_about(self):
+        t = self.theme
+        try:
+            from version import __version__
+        except Exception:
+            __version__ = "unknown"
+
+        win = tk.Toplevel(self.root)
+        win.title("About SbtDeskTran")
+        win.transient(self.root)
+        win.resizable(False, False)
+        win.configure(bg=t["bg"])
+
+        body = tk.Frame(win, bg=t["bg"], padx=18, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="SbtDeskTran", bg=t["bg"], fg=t["fg"],
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
+        tk.Label(body, text=f"Version: {__version__}", bg=t["bg"], fg=t["fg2"],
+                 font=t["font_ui"]).pack(anchor="w", pady=(4, 0))
+        tk.Label(body, text="GitHub releases: SabiTechHolding/SbtDeskTran",
+                 bg=t["bg"], fg=t["fg2"], font=t["font_small"]).pack(anchor="w", pady=(8, 0))
+
+        actions = tk.Frame(body, bg=t["bg"])
+        actions.pack(fill="x", pady=(14, 0))
+        FlatButton(actions, text="Check Update", theme=t,
+            command=lambda: self.check_for_updates(force=True, parent=win)).pack(side="left")
+        FlatButton(actions, text="Close", theme=t,
+            command=win.destroy).pack(side="right")
+
+        win.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - win.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - win.winfo_height()) // 2)
+        win.geometry(f"+{x}+{y}")
+        win.lift()
+        win.focus_force()
+
+    def check_for_updates(self, force: bool = False, parent=None):
+        try:
+            import updater
+        except Exception as exc:
+            if force:
+                messagebox.showerror("SbtDeskTran Update", f"Could not load updater:\n{exc}",
+                                     parent=parent or self.root)
+            return
+
+        if not updater.is_supported_runtime():
+            if force:
+                messagebox.showinfo(
+                    "SbtDeskTran Update",
+                    "Update check is available only in the Windows executable build.",
+                    parent=parent or self.root,
+                )
+            return
+
+        if force:
+            self._set_status("Checking for updates...", "warning")
+
+        def on_checked(info, error):
+            def handle():
+                if error:
+                    if force:
+                        messagebox.showerror(
+                            "SbtDeskTran Update",
+                            f"Could not check for updates:\n{error}",
+                            parent=parent or self.root,
+                        )
+                        self._set_status("Update check failed", "error")
+                    return
+                if not info:
+                    if force:
+                        messagebox.showinfo(
+                            "SbtDeskTran Update",
+                            "You are already using the latest version.",
+                            parent=parent or self.root,
+                        )
+                        self._set_status("Already up to date", "success")
+                    return
+                self._prompt_update(info, parent=parent or self.root)
+
+            self.root.after(0, handle)
+
+        updater.check_for_update_async(on_checked)
+
+    def _prompt_update(self, info, parent=None):
+        notes = f"\n\nVersion changes:\n{info.notes}" if info.notes else ""
+        ok = messagebox.askyesno(
+            "SbtDeskTran Update",
+            f"Version {info.version} is available.\n\nDownload and install now?{notes}",
+            parent=parent or self.root,
+        )
+        if ok:
+            self._install_update(info, parent=parent or self.root)
+
+    def _install_update(self, info, parent=None):
+        def worker():
+            try:
+                import updater
+                helper = updater.download_and_stage_update(info, restart=True)
+
+                def done():
+                    messagebox.showinfo(
+                        "SbtDeskTran Update",
+                        "Update downloaded. The app will close and restart with the new version.",
+                        parent=parent or self.root,
+                    )
+                    updater.run_update_helper(helper)
+                    self.root.destroy()
+
+                self.root.after(0, done)
+            except Exception as exc:
+                self.root.after(0, lambda: (
+                    messagebox.showerror(
+                        "SbtDeskTran Update",
+                        f"Could not install update:\n{exc}",
+                        parent=parent or self.root,
+                    ),
+                    self._set_status("Update install failed", "error"),
+                ))
+
+        self._set_status(f"Downloading update {info.version}...", "warning")
+        threading.Thread(target=worker, daemon=True).start()
+
     # ──────────────────────────────────────────
     # Lang bar (shown below topbar for Tran tab)
     # ──────────────────────────────────────────
@@ -295,7 +452,7 @@ class SbtDeskTranApp:
         if saved not in ENGINES: saved = _DEFAULT_ENGINE
         self.engine_var = tk.StringVar(value=saved)
         FilterableCombobox(inner, list(ENGINES.keys()),
-            on_select=self._do_translate,
+            on_select=self._on_translate_option_select,
             textvariable=self.engine_var, width=15,
             font=t["font_ui"]).pack(side="left", padx=(0,8))
 
@@ -303,7 +460,7 @@ class SbtDeskTranApp:
                  font=t["font_small"]).pack(side="left", padx=(0,2))
         self.src_lang_var = tk.StringVar(value=self.settings.get("src_lang","Auto Detect"))
         FilterableCombobox(inner, LANG_NAMES,
-            on_select=self._do_translate,
+            on_select=self._on_translate_option_select,
             textvariable=self.src_lang_var, width=17,
             font=t["font_ui"]).pack(side="left", padx=(0,2))
 
@@ -315,7 +472,7 @@ class SbtDeskTranApp:
         dest_langs = [l for l in LANG_NAMES if l != "Auto Detect"]
         self.dest_lang_var = tk.StringVar(value=self.settings.get("dest_lang","English"))
         FilterableCombobox(inner, dest_langs,
-            on_select=self._do_translate,
+            on_select=self._on_translate_option_select,
             textvariable=self.dest_lang_var, width=17,
             font=t["font_ui"]).pack(side="left", padx=(0,4))
 
@@ -338,13 +495,13 @@ class SbtDeskTranApp:
 
         dest_langs = [l for l in LANG_NAMES if l != "Auto Detect"]
         FilterableCombobox(self.compact_bar, LANG_NAMES,
-            on_select=self._do_translate,
+            on_select=self._on_translate_option_select,
             textvariable=self.src_lang_var, width=12,
             font=t["font_small"]).pack(side="left", padx=(6,2), pady=4)
         tk.Label(self.compact_bar, text="→", bg=t["bg2"],
                  fg=t["fg2"], font=t["font_ui"]).pack(side="left")
         FilterableCombobox(self.compact_bar, dest_langs,
-            on_select=self._do_translate,
+            on_select=self._on_translate_option_select,
             textvariable=self.dest_lang_var, width=12,
             font=t["font_small"]).pack(side="left", padx=(2,6), pady=4)
 
@@ -356,6 +513,14 @@ class SbtDeskTranApp:
         ex.bind("<Button-1>", lambda e: self._toggle_compact())
         ex.bind("<Enter>",    lambda e: ex.config(bg=t["btn_hover"], fg=t["fg"]))
         ex.bind("<Leave>",    lambda e: ex.config(bg=t["accent"],    fg=t["bg"]))
+
+        about = tk.Label(self.compact_bar, text="ⓘ",
+            bg=t["btn_bg"], fg=t["btn_fg"],
+            cursor="hand2", padx=7, pady=1, font=t["font_ui"], relief="flat")
+        about.pack(side="right", padx=2, pady=4)
+        about.bind("<Button-1>", lambda e: self._show_about())
+        about.bind("<Enter>",    lambda e: about.config(bg=t["btn_hover"], fg=t["fg"]))
+        about.bind("<Leave>",    lambda e: about.config(bg=t["btn_bg"], fg=t["btn_fg"]))
 
         on = self.settings.get("always_on_top", False)
         pin = tk.Label(self.compact_bar, text="📌",
@@ -375,21 +540,29 @@ class SbtDeskTranApp:
     def _switch_tab(self, tab_id: str, force: bool = False):
         if tab_id == self._tab and not force:
             return
+        if not force:
+            self._capture_live_tab_state()
         # Save text from current tab before switching
         if self._tab == "diff" and not force:
             try:
-                self._diff_left_cache  = self.diff_left.get("1.0","end-1c")
-                self._diff_right_cache = self.diff_right.get("1.0","end-1c")
+                if hasattr(self, "diff_editor"):
+                    self._diff_left_cache = self.diff_editor.get_text("left")
+                    self._diff_right_cache = self.diff_editor.get_text("right")
+                else:
+                    self._diff_left_cache  = self.diff_left.get("1.0","end-1c")
+                    self._diff_right_cache = self.diff_right.get("1.0","end-1c")
             except Exception:
                 pass
         if self._tab == "note" and not force:
             try:
+                self._flush_note_auto_save()
                 self._note_body_cache = self.note_body.get("1.0","end-1c")
             except Exception:
                 pass
 
         self._tab = tab_id
         self.settings["active_tab"] = tab_id
+        self._font_size = self._font_sizes.get(tab_id, self.settings.get("font_size", 10))
         self.save_fn(self.settings)
 
         # Refresh tab button styles
@@ -459,12 +632,15 @@ class SbtDeskTranApp:
         if not self._word_wrap:
             sc_x = themed_scrollbar(sf, t, orient="horizontal", command=self.src_text.xview)
             self.src_text.config(xscrollcommand=sc_x.set)
-            sc_x.pack(side="bottom", fill="x")
+            sc_x.pack(side="bottom", fill="x", before=stf)
         self.src_text.pack(fill="both", expand=True)
         self.src_text.bind("<KeyRelease>",         self._on_src_key)
         self.src_text.bind("<Control-Return>",     lambda e: self._do_translate())
         self.src_text.bind("<Control-MouseWheel>", self._on_zoom)
-        if self._src_cache:
+        self._bind_status_metrics(self.src_text, "Source")
+        if self._src_snapshot:
+            self._restore_text_widget(self.src_text, self._src_snapshot)
+        elif self._src_cache:
             self.src_text.insert("1.0", self._src_cache)
 
         # Dest pane
@@ -488,13 +664,19 @@ class SbtDeskTranApp:
         if not self._word_wrap:
             ds_x = themed_scrollbar(df, t, orient="horizontal", command=self.dest_text.xview)
             self.dest_text.config(xscrollcommand=ds_x.set)
-            ds_x.pack(side="bottom", fill="x")
+            ds_x.pack(side="bottom", fill="x", before=dtf)
         self.dest_text.pack(fill="both", expand=True)
         self.dest_text.bind("<Control-MouseWheel>", self._on_zoom)
-        if self._dst_cache:
+        self._bind_status_metrics(self.dest_text, "Translated")
+        if self._dst_snapshot:
+            self._restore_text_widget(self.dest_text, self._dst_snapshot, readonly=True)
+        elif self._dst_cache:
             self.dest_text.config(state="normal")
             self.dest_text.insert("1.0", self._dst_cache)
             self.dest_text.config(state="disabled")
+        self._status_widget = self.src_text
+        self._status_panel = "Source"
+        self._update_status_metrics()
 
     # ──────────────────────────────────────────
     # TAB: Diff (two independent free-text boxes)
@@ -502,86 +684,212 @@ class SbtDeskTranApp:
     def _build_diff_tab(self):
         t = self.theme
 
-        # Top section: two input panes side by side (fixed height via PanedWindow)
-        pw_outer = tk.PanedWindow(self.content, orient=tk.HORIZONTAL,
-            bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
-        pw_outer.pack(fill="both", expand=True, side="top")
+        self.diff_editor = VirtualDiffEditor(
+            self.content,
+            theme=t,
+            settings=self.settings,
+            save_fn=self.save_fn,
+            save_debounced=self._save_settings_debounced,
+            left_text=self._diff_left_cache,
+            right_text=self._diff_right_cache,
+            word_wrap=self._word_wrap,
+            font_size=self._font_size,
+            compact=self._compact,
+            on_zoom=self._on_zoom,
+            on_status=self._set_status,
+            on_changed=self._update_status_metrics,
+        )
+        self.diff_editor.pack(fill="both", expand=True)
+        self.diff_left = self.diff_editor.left_text
+        self.diff_right = self.diff_editor.right_text
+        self.diff_auto_var = self.diff_editor.auto_var
+        self.diff_word_diff_var = self.diff_editor.word_diff_var
+        self.diff_ignore_ws_var = self.diff_editor.ignore_ws_var
+        self._bind_status_metrics(self.diff_left, "Left")
+        self._bind_status_metrics(self.diff_right, "Right")
+        self._status_widget = self.diff_left
+        self._status_panel = "Left"
+        self._update_status_metrics()
 
-        saved_auto = self.settings.get("diff_auto", True)
-        self.diff_auto_var = tk.BooleanVar(value=saved_auto)
+    def _diff_input_xscroll(self, side, *args):
+        try:
+            getattr(self, f"diff_{side}_scroll_x").set(*args)
+        except Exception:
+            pass
 
-        for side, lbl, cache in (
-            ("left",  "◀  Left",  self._diff_left_cache),
-            ("right", "▶  Right", self._diff_right_cache),
-        ):
-            fr = tk.Frame(pw_outer, bg=t["bg"])
-            pw_outer.add(fr, stretch="always", minsize=100)
-            hdr = tk.Frame(fr, bg=t["bg3"], height=28)
-            hdr.pack(fill="x"); hdr.pack_propagate(False)
-            tk.Label(hdr, text=f"  {lbl}", bg=t["bg3"], fg=t["fg2"],
-                font=t["font_ui_bold"], anchor="w").pack(side="left", fill="y")
-            FlatButton(hdr, text="✕ Clear", theme=t,
-                command=lambda s=side: getattr(self, f"diff_{s}").delete("1.0","end")).pack(side="right", padx=4)
-            FlatButton(hdr, text="⎘ Copy", theme=t,
-                command=lambda s=side: self._copy_text(getattr(self, f"diff_{s}"))).pack(side="right", padx=2)
-            # Run Diff + Auto — chỉ ở Right header, ẩn khi compact
-            if side == "right" and not self._compact:
-                def _on_auto_toggle():
-                    self.settings["diff_auto"] = self.diff_auto_var.get()
-                    self.save_fn(self.settings)
-                    if self.diff_auto_var.get(): self._run_diff()
-                tk.Checkbutton(hdr, text="Auto", variable=self.diff_auto_var,
-                    command=_on_auto_toggle,
-                    bg=t["bg3"], fg=t["fg2"], selectcolor=t["bg3"],
-                    activebackground=t["bg3"], activeforeground=t["fg"],
-                    font=t["font_small"]).pack(side="right", padx=2)
-                FlatButton(hdr, text="▶ Run Diff", theme=t,
-                    command=self._run_diff).pack(side="right", padx=4)
-            tf = tk.Frame(fr, bg=t["bg"]); tf.pack(fill="both", expand=True)
-            wrap_mode = "word" if self._word_wrap else "none"
-            txt = tk.Text(tf, bg=t["bg"], fg=t["fg"],
-                font=("Consolas", self._font_size), wrap=wrap_mode,
-                relief="flat", bd=0, padx=8, pady=6, height=7,
-                insertbackground=t["fg"], selectbackground=t["selection"], undo=True)
-            sc = themed_scrollbar(tf, t, command=txt.yview)
-            txt.config(yscrollcommand=sc.set)
-            sc.pack(side="right", fill="y")
-            if not self._word_wrap:
-                # Pack horizontal scrollbar BEFORE txt so it's not pushed out
-                sc_x = themed_scrollbar(fr, t, orient="horizontal", command=txt.xview)
-                txt.config(xscrollcommand=sc_x.set)
-                sc_x.pack(side="bottom", fill="x", before=tf)
-            txt.pack(fill="both", expand=True)
-            txt.bind("<Control-MouseWheel>", self._on_zoom)
-            if cache:
-                txt.insert("1.0", cache)
-            setattr(self, f"diff_{side}", txt)
+    def _sync_diff_input_x(self, side, *args):
+        try:
+            self.diff_left.xview(*args)
+            self.diff_right.xview(*args)
+        except Exception:
+            pass
 
-        def _key_handler(e):
-            if self.diff_auto_var.get():
-                if hasattr(self, "_diff_key_timer") and self._diff_key_timer:
-                    self.root.after_cancel(self._diff_key_timer)
-                self._diff_key_timer = self.root.after(500, self._run_diff)
-        self.diff_left.bind("<KeyRelease>",  _key_handler)
-        self.diff_right.bind("<KeyRelease>", _key_handler)
+    def _diff_input_yscroll(self, side, *args):
+        try:
+            getattr(self, f"diff_{side}_scroll_y").set(*args)
+            getattr(self, f"diff_{side}_gutter").yview_moveto(args[0])
+            if getattr(self, "_syncing_diff_y", False):
+                return
+            self._sync_diff_y_from_side(side)
+        except Exception:
+            self._syncing_diff_y = False
 
-        # Diff viewer
-        self.diff_viewer = DiffViewer(self.content, theme=t,
-            word_wrap=self._word_wrap, font_size=self._font_size,
-            on_zoom=self._on_zoom, bg=t["bg2"])
-        self.diff_viewer.pack(fill="both", expand=True)
+    def _sync_diff_input_y(self, side, *args):
+        try:
+            self._syncing_diff_y = True
+            self.diff_left.yview(*args)
+            self.diff_right.yview(*args)
+            self.diff_left_gutter.yview_moveto(self.diff_left.yview()[0])
+            self.diff_right_gutter.yview_moveto(self.diff_right.yview()[0])
+        except Exception:
+            pass
+        finally:
+            self._syncing_diff_y = False
+
+    def _sync_diff_y_from_side(self, side):
+        other = "right" if side == "left" else "left"
+        src = getattr(self, f"diff_{side}")
+        dst = getattr(self, f"diff_{other}")
+        try:
+            top_line = int(src.index("@0,0").split(".", 1)[0])
+            dst_total = max(1, int(dst.index("end-1c").split(".", 1)[0]))
+            self._syncing_diff_y = True
+            dst.yview_moveto(max(0, top_line - 1) / dst_total)
+            getattr(self, f"diff_{other}_gutter").yview_moveto(dst.yview()[0])
+            getattr(self, f"diff_{side}_gutter").yview_moveto(src.yview()[0])
+        except Exception:
+            pass
+        finally:
+            self._syncing_diff_y = False
+
+    def _on_diff_shift_mousewheel(self, event):
+        try:
+            units = -1 if event.delta > 0 else 1
+            self.diff_left.xview_scroll(units, "units")
+            self.diff_right.xview_scroll(units, "units")
+            return "break"
+        except Exception:
+            return None
+
+    def _clear_diff_side(self, side):
+        try:
+            if hasattr(self, "diff_editor"):
+                self.diff_editor.clear_side(side)
+            else:
+                getattr(self, f"diff_{side}").delete("1.0", "end")
+                self._run_diff()
+                self._refresh_diff_line_numbers()
+            self._update_status_metrics()
+        except Exception:
+            pass
+
+    def _refresh_diff_line_numbers(self):
+        for side in ("left", "right"):
+            try:
+                text = getattr(self, f"diff_{side}")
+                gutter = getattr(self, f"diff_{side}_gutter")
+                line_count = max(1, int(text.index("end-1c").split(".", 1)[0]))
+                width = max(4, len(str(line_count)) + 1)
+                nums = "\n".join(f"{i:>{width - 1}}" for i in range(1, line_count + 1))
+                gutter.config(state="normal", width=width)
+                gutter.delete("1.0", "end")
+                gutter.insert("1.0", nums)
+                gutter.config(state="disabled")
+                gutter.yview_moveto(text.yview()[0])
+            except Exception:
+                pass
+
+    def _configure_diff_input_tags(self, widget):
+        t = self.theme
+        widget.tag_configure("diff_delete_line",
+            background=t["diff_del_bg"], foreground=t["diff_del_fg"])
+        widget.tag_configure("diff_insert_line",
+            background=t["diff_add_bg"], foreground=t["diff_add_fg"])
+        widget.tag_configure("diff_delete_inline",
+            background=t["diff_del_inline"], foreground="#ffffff")
+        widget.tag_configure("diff_insert_inline",
+            background=t["diff_add_inline"], foreground="#ffffff")
+        widget.tag_raise("diff_delete_inline")
+        widget.tag_raise("diff_insert_inline")
+
+    def _clear_diff_input_tags(self):
+        for widget in (self.diff_left, self.diff_right):
+            for tag in ("diff_delete_line", "diff_insert_line",
+                        "diff_delete_inline", "diff_insert_inline"):
+                widget.tag_remove(tag, "1.0", "end")
+
+    def _tag_diff_line(self, widget, lineno, tag):
+        widget.tag_add(tag, f"{lineno}.0", f"{lineno}.0 lineend +1c")
+
+    def _tag_diff_inline(self, widget, lineno, tokens, inline_tag):
+        col = 0
+        for token in tokens:
+            next_col = col + len(token.text)
+            if token.kind != "equal" and next_col > col:
+                widget.tag_add(inline_tag, f"{lineno}.{col}", f"{lineno}.{next_col}")
+            col = next_col
+
+    def _apply_diff_highlights(self, chunks):
+        from diff_engine import compute_inline_diff
+
+        self._clear_diff_input_tags()
+        old_lineno = 1
+        new_lineno = 1
+
+        for chunk in chunks:
+            if chunk.kind == "equal":
+                old_lineno += len(chunk.old_lines)
+                new_lineno += len(chunk.new_lines)
+            elif chunk.kind == "delete":
+                for _ in chunk.old_lines:
+                    self._tag_diff_line(self.diff_left, old_lineno, "diff_delete_line")
+                    old_lineno += 1
+            elif chunk.kind == "insert":
+                for _ in chunk.new_lines:
+                    self._tag_diff_line(self.diff_right, new_lineno, "diff_insert_line")
+                    new_lineno += 1
+            elif chunk.kind == "replace":
+                max_lines = max(len(chunk.old_lines), len(chunk.new_lines))
+                for i in range(max_lines):
+                    old_line = chunk.old_lines[i] if i < len(chunk.old_lines) else None
+                    new_line = chunk.new_lines[i] if i < len(chunk.new_lines) else None
+                    if old_line is not None:
+                        self._tag_diff_line(self.diff_left, old_lineno, "diff_delete_line")
+                    if new_line is not None:
+                        self._tag_diff_line(self.diff_right, new_lineno, "diff_insert_line")
+                    if old_line is not None and new_line is not None:
+                        old_toks, new_toks = compute_inline_diff(old_line, new_line)
+                        self._tag_diff_inline(
+                            self.diff_left, old_lineno, old_toks, "diff_delete_inline")
+                        self._tag_diff_inline(
+                            self.diff_right, new_lineno, new_toks, "diff_insert_inline")
+                    if old_line is not None:
+                        old_lineno += 1
+                    if new_line is not None:
+                        new_lineno += 1
 
     def _run_diff(self):
         try:
+            if hasattr(self, "diff_editor"):
+                self.diff_editor.render()
+                return
             left  = self.diff_left.get("1.0","end-1c")
             right = self.diff_right.get("1.0","end-1c")
-            self.diff_viewer.render(left, right)
+            ignore_ws = (
+                bool(self.diff_ignore_ws_var.get())
+                if hasattr(self, "diff_ignore_ws_var")
+                else self.settings.get("diff_ignore_whitespace", False)
+            )
             # Show stats in statusbar instead of diff header
             from diff_engine import get_diff_stats, compute_line_diff
-            stats = get_diff_stats(compute_line_diff(left, right))
+            chunks = compute_line_diff(left, right, ignore_whitespace=ignore_ws)
+            self._refresh_diff_line_numbers()
+            self._apply_diff_highlights(chunks)
+            stats = get_diff_stats(chunks)
+            suffix = " (whitespace ignored)" if ignore_ws else ""
             self._set_status(
-                f"+{stats['added']} added   −{stats['removed']} removed   "
-                f"{stats['changed_blocks']} block(s) changed")
+                f"+{stats['added']} added   -{stats['removed']} removed   "
+                f"{stats['changed_blocks']} block(s) changed{suffix}")
         except Exception as e:
             self._set_status(f"Diff error: {e}", "error")
     # ──────────────────────────────────────────
@@ -600,9 +908,20 @@ class SbtDeskTranApp:
         # Editor header: title entry + Save
         eh = tk.Frame(ef, bg=t["bg3"], height=28); eh.pack(fill="x"); eh.pack_propagate(False)
         self.note_title = tk.StringVar()
-        tk.Entry(eh, textvariable=self.note_title, bg=t["bg3"], fg=t["fg"],
+        self.note_title_entry = tk.Entry(eh, textvariable=self.note_title, bg=t["bg3"], fg=t["fg"],
             font=t["font_ui_bold"], relief="flat", bd=0,
-            insertbackground=t["fg"]).pack(side="left", fill="both", expand=True, padx=8, pady=4)
+            insertbackground=t["fg"])
+        self.note_title_entry.pack(side="left", fill="both", expand=True, padx=8, pady=4)
+        self.note_title_entry.bind("<KeyRelease>", self._note_debounce)
+        self.note_auto_var = tk.BooleanVar(value=self.settings.get("note_auto_save", True))
+        tk.Checkbutton(eh, text="Auto Save", variable=self.note_auto_var,
+            command=self._toggle_note_auto_save,
+            bg=t["bg3"], fg=t["fg2"], selectcolor=t["bg3"],
+            activebackground=t["bg3"], activeforeground=t["fg"],
+            font=t["font_small"]).pack(side="right", padx=4)
+        self.note_save_state_lbl = tk.Label(eh, bg=t["bg3"], fg=t["success"],
+            text="✓ Saved", font=t["font_small"], padx=6)
+        self.note_save_state_lbl.pack(side="right", fill="y")
         FlatButton(eh, text="💾 Save", theme=t, command=self._note_save).pack(side="right", padx=4)
 
         # Editor body
@@ -623,6 +942,7 @@ class SbtDeskTranApp:
         self.note_body.bind("<Control-Return>",     lambda e: self._note_save())
         self.note_body.bind("<Control-MouseWheel>", self._on_zoom)
         self.note_body.bind("<KeyRelease>",          self._note_debounce)
+        self._bind_status_metrics(self.note_body, "Note")
 
         # Sidebar — bên phải, width vừa đủ 3 nút
         saved_sb_w = self.settings.get("note_sidebar_width", 130)
@@ -642,8 +962,8 @@ class SbtDeskTranApp:
         # Sidebar header: 3 buttons
         sh = tk.Frame(sb, bg=t["bg3"], height=28); sh.pack(fill="x"); sh.pack_propagate(False)
         FlatButton(sh, text="＋", theme=t, command=self._note_new).pack(side="left", padx=2)
-        FlatButton(sh, text="💾", theme=t, command=self._note_save).pack(side="left", padx=2)
-        FlatButton(sh, text="🗑", theme=t, command=self._note_del).pack(side="left", padx=2)
+        self.note_del_btn = FlatButton(sh, text="🗑", theme=t, command=self._note_del)
+        self.note_del_btn.pack(side="left", padx=2)
 
         # Note list
         lf = tk.Frame(sb, bg=t["bg2"]); lf.pack(fill="both", expand=True)
@@ -658,15 +978,29 @@ class SbtDeskTranApp:
         self._note_refresh()
         self._note_idx = getattr(self, "_note_idx", 0)
         _restore_body = getattr(self, "_note_body_cache", "")
+        _restore_title = getattr(self, "_note_title_cache", None)
+        _restore_dirty = self._note_dirty if getattr(self, "_note_dirty_cache", None) is None else self._note_dirty_cache
         if self._notes:
             idx = max(0, min(self._note_idx, len(self._notes)-1))
             self.note_list.selection_set(idx)
             self._note_load(idx)
         # After note_load, restore unsaved body if toggling wrap
-        if _restore_body:
+        if self._note_snapshot:
+            self._restore_text_widget(self.note_body, self._note_snapshot)
+            self._note_snapshot = None
+            self._note_body_cache = ""
+        elif _restore_body:
             self.note_body.delete("1.0", "end")
             self.note_body.insert("1.0", _restore_body)
             self._note_body_cache = ""
+        if _restore_title is not None:
+            self.note_title.set(_restore_title)
+            self._note_title_cache = None
+        self._note_dirty_cache = None
+        self._status_widget = self.note_body
+        self._status_panel = "Note"
+        self._set_note_dirty(_restore_dirty)
+        self._update_status_metrics()
 
     def _load_notes(self):
         for path in data_file_candidates("notes.json"):
@@ -703,30 +1037,124 @@ class SbtDeskTranApp:
             self.note_list.delete(0, "end")
             for n in self._notes:
                 self.note_list.insert("end", "  " + n.get("title","Untitled"))
+            self._note_update_buttons()
+        except Exception:
+            pass
+
+    def _note_update_buttons(self):
+        try:
+            enabled = bool(self._notes)
+            self.note_del_btn.config(
+                fg=self.theme["btn_fg"] if enabled else self.theme["fg2"],
+                bg=self.theme["btn_bg"],
+                cursor="hand2" if enabled else "arrow",
+            )
+        except Exception:
+            pass
+
+    def _set_note_dirty(self, dirty: bool):
+        self._note_dirty = dirty
+        try:
+            if dirty:
+                self.note_save_state_lbl.config(
+                    text="● Unsaved",
+                    fg=self.theme["warning"],
+                    bg=self.theme["bg3"],
+                )
+            else:
+                self.note_save_state_lbl.config(
+                    text="✓ Saved",
+                    fg=self.theme["success"],
+                    bg=self.theme["bg3"],
+                )
         except Exception:
             pass
 
     def _note_select(self, _=None):
         sel = self.note_list.curselection()
-        if sel: self._note_load(sel[0])
+        if sel:
+            idx = sel[0]
+            if idx == getattr(self, "_note_idx", -1):
+                return
+            if self._note_dirty and self.settings.get("note_auto_save", True):
+                self._note_save()
+            self._note_snapshot = None
+            self._note_load(idx)
+
+    def _cancel_note_timer(self):
+        if self._note_timer:
+            try:
+                self.root.after_cancel(self._note_timer)
+            except Exception:
+                pass
+            self._note_timer = None
 
     def _note_load(self, idx):
+        self._cancel_note_timer()
+        if idx < 0 or idx >= len(self._notes):
+            self._note_idx = -1
+            self.note_title.set("")
+            self.note_body.delete("1.0","end")
+            self._set_note_dirty(False)
+            return
         self._note_idx = idx
         n = self._notes[idx]
         self.note_title.set(n.get("title",""))
         self.note_body.delete("1.0","end")
         self.note_body.insert("1.0", n.get("body",""))
+        self._set_note_dirty(False)
 
     def _note_save(self):
+        self._cancel_note_timer()
         idx = getattr(self,"_note_idx",-1)
-        if idx < 0 or idx >= len(self._notes): return
+        if idx < 0 or idx >= len(self._notes):
+            title = self.note_title.get().strip() or "Untitled"
+            body = self.note_body.get("1.0","end-1c")
+            self._notes.append({"title": title, "body": body})
+            idx = len(self._notes) - 1
+            self._note_idx = idx
+            self._save_notes()
+            self._note_refresh()
+            self.note_list.selection_clear(0,"end")
+            self.note_list.selection_set(idx)
+            self.note_list.see(idx)
+            self._set_note_dirty(False)
+            self._set_status("Note created", "success")
+            return
         self._notes[idx]["title"] = self.note_title.get() or "Untitled"
         self._notes[idx]["body"]  = self.note_body.get("1.0","end-1c")
         self._save_notes(); self._note_refresh()
         self.note_list.selection_set(idx)
+        self._set_note_dirty(False)
         self._set_status("Note saved", "success")
 
+    def _toggle_note_auto_save(self):
+        state = bool(self.note_auto_var.get()) if hasattr(self, "note_auto_var") else True
+        self.settings["note_auto_save"] = state
+        if not state and self._note_timer:
+            try:
+                self.root.after_cancel(self._note_timer)
+            except Exception:
+                pass
+            self._note_timer = None
+        if state and self._note_dirty:
+            self._note_debounce()
+        self._set_status("Note auto save: " + ("ON" if state else "OFF"))
+        self.save_fn(self.settings)
+
+    def _flush_note_auto_save(self):
+        try:
+            if not self.settings.get("note_auto_save", True) or not self._note_dirty:
+                return
+            idx = getattr(self, "_note_idx", -1)
+            if idx < 0 or idx >= len(self._notes):
+                return
+            self._note_save()
+        except Exception:
+            pass
+
     def _note_new(self):
+        self._note_snapshot = None
         self._notes.append({"title":"New note","body":""})
         self._note_refresh()
         idx = len(self._notes)-1
@@ -734,18 +1162,31 @@ class SbtDeskTranApp:
         self.note_list.selection_set(idx)
         self.note_list.see(idx)
         self._note_load(idx)
+        self._set_note_dirty(False)
 
     def _note_del(self):
+        self._note_snapshot = None
         idx = getattr(self,"_note_idx",-1)
         if idx < 0 or idx >= len(self._notes): return
-        if len(self._notes) == 1:
-            self._notes = [{"title":"My first note","body":""}]
-            self._save_notes(); self._note_refresh(); self._note_load(0); return
+        title = self._notes[idx].get("title", "Untitled")
+        if not messagebox.askyesno("Delete note", f"Delete note '{title}'?"):
+            return
         self._notes.pop(idx); self._save_notes(); self._note_refresh()
-        ni = min(idx, len(self._notes)-1)
-        self.note_list.selection_set(ni); self._note_load(ni)
+        if self._notes:
+            ni = min(idx, len(self._notes)-1)
+            self.note_list.selection_set(ni); self._note_load(ni)
+        else:
+            self._note_load(-1)
+        self._set_note_dirty(False)
 
     def _note_debounce(self, _=None):
+        self._note_snapshot = None
+        self._set_note_dirty(True)
+        if not self.settings.get("note_auto_save", True):
+            return
+        idx = getattr(self, "_note_idx", -1)
+        if idx < 0 or idx >= len(self._notes):
+            return
         if self._note_timer: self.root.after_cancel(self._note_timer)
         self._note_timer = self.root.after(2000, self._note_save)
     # ──────────────────────────────────────────
@@ -753,30 +1194,52 @@ class SbtDeskTranApp:
     # ──────────────────────────────────────────
     def _on_zoom(self, event):
         self._font_size = max(FONT_MIN, min(FONT_MAX, self._font_size + (1 if event.delta > 0 else -1)))
+        self._font_sizes[self._tab] = self._font_size
+        self.settings[f"font_size_{self._tab}"] = self._font_size
         self.settings["font_size"] = self._font_size
         font = ("Consolas", self._font_size)
         for attr in ("src_text","dest_text","diff_left","diff_right","note_body"):
             try: getattr(self, attr).config(font=font)
             except Exception: pass
-        try: self.diff_viewer.set_font_size(self._font_size)
-        except Exception: pass
+        try:
+            self.diff_editor.set_font_size(self._font_size)
+        except Exception:
+            pass
         self._set_status(f"Font: {self._font_size}px")
+        self._update_status_metrics()
         self._save_settings_debounced()
         return "break"
 
     # ──────────────────────────────────────────
     # Translation
     # ──────────────────────────────────────────
+    def _save_translate_options(self):
+        try:
+            if hasattr(self, "engine_var"):
+                self.settings["engine"] = self.engine_var.get()
+            if hasattr(self, "src_lang_var"):
+                self.settings["src_lang"] = self.src_lang_var.get()
+            if hasattr(self, "dest_lang_var"):
+                self.settings["dest_lang"] = self.dest_lang_var.get()
+            self.save_fn(self.settings)
+        except Exception:
+            pass
+
+    def _on_translate_option_select(self):
+        self._save_translate_options()
+        self._do_translate()
+
     def _on_src_key(self, _=None):
         try:
             text = self.src_text.get("1.0","end-1c")
-            self.char_lbl.config(text=f"{len(text)} chars  ")
+            self._update_status_metrics()
             if not getattr(self,"auto_var",None) or not self.auto_var.get(): return
             if self._timer: self.root.after_cancel(self._timer)
             self._timer = self.root.after(700, self._do_translate)
         except Exception: pass
 
     def _do_translate(self):
+        self._save_translate_options()
         try: text = self.src_text.get("1.0","end-1c")
         except Exception: return
         if not text.strip():
@@ -799,12 +1262,16 @@ class SbtDeskTranApp:
                     det_name   = LANG_CODE_TO_NAME.get(detected, detected)
                     self._src_cache = text
                     self._dst_cache = translated
+                    self._src_snapshot = None
+                    self._dst_snapshot = None
                     self._set_dst(translated)
                     try:
                         lbl = f"  Translated  (detected: {det_name})" if src_code=="auto" else "  Translated"
                         self.det_lbl.config(text=lbl)
                     except Exception: pass
-                    self._set_status(f"Translated via {eng_name}","success")
+                    chunks = res.get("chunks", 1)
+                    suffix = f" ({chunks} chunks)" if chunks and chunks > 1 else ""
+                    self._set_status(f"Translated via {eng_name}{suffix}","success")
                     self._busy = False
                 self.root.after(0, done)
             except TranslationError as e:
@@ -819,6 +1286,8 @@ class SbtDeskTranApp:
             self.dest_text.delete("1.0","end")
             self.dest_text.insert("1.0", text)
             self.dest_text.config(state="disabled")
+            self._dst_snapshot = None
+            self._update_status_metrics()
         except Exception: pass
 
     def _copy_text(self, widget):
@@ -833,9 +1302,10 @@ class SbtDeskTranApp:
             self.src_text.delete("1.0","end")
             self._set_dst("")
             self.det_lbl.config(text="  Translated")
-            self.char_lbl.config(text="")
             self._src_cache = self._dst_cache = ""
+            self._src_snapshot = self._dst_snapshot = None
             self._set_status("Cleared")
+            self._update_status_metrics()
         except Exception: pass
 
     def _swap_langs(self):
@@ -844,11 +1314,13 @@ class SbtDeskTranApp:
         if s == "Auto Detect":
             self._set_status("Cannot swap when source is Auto Detect","warning"); return
         self.src_lang_var.set(d); self.dest_lang_var.set(s)
+        self._save_translate_options()
         try:
             st = self.src_text.get("1.0","end-1c")
             dt = self.dest_text.get("1.0","end-1c")
             self.src_text.delete("1.0","end"); self.src_text.insert("1.0",dt)
             self._set_dst(st)
+            self._src_snapshot = self._dst_snapshot = None
         except Exception: pass
         self._do_translate()
 
@@ -859,10 +1331,171 @@ class SbtDeskTranApp:
             self.status_lbl.config(text=f"  {msg}", fg=colors.get(kind, t["status_fg"]))
         except Exception: pass
 
+    def _bind_status_metrics(self, widget, panel: str):
+        def update(_=None, w=widget, p=panel):
+            self._status_widget = w
+            self._status_panel = p
+            self._update_status_metrics()
+        for event in ("<FocusIn>", "<Enter>", "<KeyRelease>", "<ButtonRelease-1>"):
+            widget.bind(event, update, add="+")
+        widget.bind("<<Selection>>", update, add="+")
+
+    def _text_metrics(self, widget):
+        try:
+            text = widget.get("1.0", "end-1c")
+        except Exception:
+            text = ""
+        line = col = 1
+        try:
+            line_s, col_s = widget.index("insert").split(".")
+            line, col = int(line_s), int(col_s) + 1
+        except Exception:
+            pass
+        selected = 0
+        try:
+            ranges = widget.tag_ranges("sel")
+            for i in range(0, len(ranges), 2):
+                selected += len(widget.get(ranges[i], ranges[i + 1]))
+        except Exception:
+            pass
+        return len(text), line, col, selected
+
+    def _update_status_metrics(self):
+        try:
+            if not hasattr(self, "char_lbl"):
+                return
+            w = self._status_widget
+            panel = self._status_panel or self._tab.title()
+            if w is None:
+                self.char_lbl.config(text="")
+                return
+            chars, line, col, selected = self._text_metrics(w)
+            if self._tab == "diff":
+                if hasattr(self, "diff_editor"):
+                    left = len(self.diff_editor.get_text("left"))
+                    right = len(self.diff_editor.get_text("right"))
+                else:
+                    left = self._text_metrics(self.diff_left)[0] if hasattr(self, "diff_left") else 0
+                    right = self._text_metrics(self.diff_right)[0] if hasattr(self, "diff_right") else 0
+                self.char_lbl.config(
+                    text=f"Left {left} | Right {right} | {panel}: Ln {line}, Ch {col} | Sel {selected}  ")
+            else:
+                self.char_lbl.config(
+                    text=f"{panel}: {chars} chars | Ln {line}, Ch {col} | Sel {selected}  ")
+        except Exception:
+            pass
+
+    def _set_paned_sash(self, pane, x: int):
+        try:
+            y = pane.sash_coord(0)[1]
+            pane.sash_place(0, max(100, x), y)
+        except Exception:
+            pass
+
+    def _set_paned_sash_ratio(self, pane, ratio):
+        try:
+            width = max(1, pane.winfo_width())
+            x = int(width * max(0.1, min(0.9, float(ratio))))
+            self._set_paned_sash(pane, x)
+        except Exception:
+            pass
+
+    def _snapshot_text_widget(self, widget):
+        try:
+            sel = [(str(ranges[i]), str(ranges[i + 1]))
+                   for ranges in [widget.tag_ranges("sel")]
+                   for i in range(0, len(ranges), 2)]
+            return {
+                "text": widget.get("1.0", "end-1c"),
+                "insert": str(widget.index("insert")),
+                "yview": widget.yview(),
+                "xview": widget.xview(),
+                "selection": sel,
+            }
+        except Exception:
+            return None
+
+    def _restore_text_widget(self, widget, snapshot, readonly=False):
+        if not snapshot:
+            return
+        try:
+            widget.config(state="normal")
+            widget.delete("1.0", "end")
+            widget.insert("1.0", snapshot.get("text", ""))
+            try:
+                widget.mark_set("insert", snapshot.get("insert", "1.0"))
+            except Exception:
+                pass
+            widget.tag_remove("sel", "1.0", "end")
+            for start, end in snapshot.get("selection", []):
+                try:
+                    widget.tag_add("sel", start, end)
+                except Exception:
+                    pass
+            try:
+                widget.yview_moveto(snapshot.get("yview", (0,))[0])
+                widget.xview_moveto(snapshot.get("xview", (0,))[0])
+            except Exception:
+                pass
+            if readonly:
+                widget.config(state="disabled")
+        except Exception:
+            try:
+                if readonly:
+                    widget.config(state="disabled")
+            except Exception:
+                pass
+
     # ──────────────────────────────────────────
     # Toggles
     # ──────────────────────────────────────────
+    def _capture_live_tab_state(self):
+        """Keep live widget content before rebuilding themed UI."""
+        try:
+            if hasattr(self, "engine_var"):
+                self.settings["engine"] = self.engine_var.get()
+            if hasattr(self, "src_lang_var"):
+                self.settings["src_lang"] = self.src_lang_var.get()
+            if hasattr(self, "dest_lang_var"):
+                self.settings["dest_lang"] = self.dest_lang_var.get()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "src_text"):
+                self._src_snapshot = self._snapshot_text_widget(self.src_text)
+                self._src_cache = self.src_text.get("1.0", "end-1c")
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "dest_text"):
+                self._dst_snapshot = self._snapshot_text_widget(self.dest_text)
+                self._dst_cache = self.dest_text.get("1.0", "end-1c")
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "diff_editor"):
+                self._diff_left_cache = self.diff_editor.get_text("left")
+                self._diff_right_cache = self.diff_editor.get_text("right")
+            elif hasattr(self, "diff_left") and hasattr(self, "diff_right"):
+                self._diff_left_cache = self.diff_left.get("1.0", "end-1c")
+                self._diff_right_cache = self.diff_right.get("1.0", "end-1c")
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "note_body"):
+                self._note_dirty_cache = self._note_dirty
+                self._note_snapshot = self._snapshot_text_widget(self.note_body)
+                self._note_body_cache = self.note_body.get("1.0", "end-1c")
+                self._note_title_cache = self.note_title.get() if hasattr(self, "note_title") else None
+                idx = getattr(self, "_note_idx", -1)
+                if 0 <= idx < len(self._notes):
+                    self._notes[idx]["title"] = self._note_title_cache or "Untitled"
+                    self._notes[idx]["body"] = self._note_body_cache
+        except Exception:
+            pass
+
     def _toggle_theme(self):
+        self._capture_live_tab_state()
         name = "light" if self.theme["name"]=="dark" else "dark"
         self.theme = THEMES[name]; self.settings["theme"] = name
         self._apply_ttk_style()
@@ -880,6 +1513,7 @@ class SbtDeskTranApp:
         self.save_fn(self.settings)
 
     def _toggle_compact(self):
+        self._capture_live_tab_state()
         self._compact = not self._compact
         self.settings["compact_mode"] = self._compact
         s = self.settings
@@ -904,6 +1538,7 @@ class SbtDeskTranApp:
         self.save_fn(self.settings)
 
     def _toggle_layout(self):
+        self._capture_live_tab_state()
         self._layout = "vertical" if self._layout=="horizontal" else "horizontal"
         self.settings["layout"] = self._layout
         try: self.layout_btn.config(text="⊟" if self._layout=="horizontal" else "⊞")
@@ -913,27 +1548,7 @@ class SbtDeskTranApp:
         self.save_fn(self.settings)
 
     def _toggle_wrap(self):
-        # 1. Save all current text before rebuilding
-        try:
-            self._src_cache = self.src_text.get("1.0", "end-1c")
-        except Exception:
-            pass
-        try:
-            self.dest_text.config(state="normal")
-            self._dst_cache = self.dest_text.get("1.0", "end-1c")
-            self.dest_text.config(state="disabled")
-        except Exception:
-            pass
-        try:
-            self._diff_left_cache  = self.diff_left.get("1.0", "end-1c")
-            self._diff_right_cache = self.diff_right.get("1.0", "end-1c")
-        except Exception:
-            pass
-        try:
-            self._note_body_cache = self.note_body.get("1.0", "end-1c")
-        except Exception:
-            pass
-
+        self._capture_live_tab_state()
         self._word_wrap = not self._word_wrap
         self.settings["word_wrap"] = self._word_wrap
         try: self.wrap_btn.set_toggled(self._word_wrap)
