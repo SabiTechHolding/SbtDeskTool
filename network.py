@@ -3,6 +3,7 @@ Shared network utilities: proxy detection, SSL configuration, HTTP requests,
 PowerShell fallback, and error diagnostics for corporate/VPN/proxy environments.
 """
 import json
+import base64
 import socket
 import ssl
 import subprocess
@@ -143,13 +144,28 @@ $proxy = [System.Net.WebRequest]::DefaultWebProxy
 if ($proxy -ne $null) {
     $proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
 }
-$headers = @{
-    'User-Agent' = '%s'
-    'Accept' = 'application/json, text/plain, */*'
-    'Accept-Language' = 'en-US,en;q=0.9'
+$req = [System.Net.HttpWebRequest]::Create($payload.url)
+$req.Method = 'GET'
+$req.Timeout = [int]($payload.timeout * 1000)
+$req.ReadWriteTimeout = [int]($payload.timeout * 1000)
+$req.UserAgent = '%s'
+$req.Accept = 'application/json, text/plain, */*'
+$req.Headers.Add('Accept-Language', 'en-US,en;q=0.9')
+if ($proxy -ne $null) {
+    $req.Proxy = $proxy
 }
-$resp = Invoke-WebRequest -Uri $payload.url -UseBasicParsing -TimeoutSec $payload.timeout -Headers $headers
-[Console]::Out.Write($resp.Content)
+$resp = $req.GetResponse()
+try {
+    $stream = $resp.GetResponseStream()
+    $ms = [System.IO.MemoryStream]::new()
+    $stream.CopyTo($ms)
+    [Console]::Out.Write([System.Convert]::ToBase64String($ms.ToArray()))
+}
+finally {
+    if ($stream -ne $null) { $stream.Dispose() }
+    if ($ms -ne $null) { $ms.Dispose() }
+    if ($resp -ne $null) { $resp.Dispose() }
+}
 """ % user_agent.replace("'", "''")
 
     startupinfo = None
@@ -173,7 +189,11 @@ $resp = Invoke-WebRequest -Uri $payload.url -UseBasicParsing -TimeoutSec $payloa
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", errors="replace").strip()
         raise OSError(err or f"PowerShell exited with code {proc.returncode}")
-    return proc.stdout
+    try:
+        return base64.b64decode(proc.stdout.strip(), validate=True)
+    except Exception as e:
+        preview = proc.stdout[:80].decode("utf-8", errors="replace")
+        raise OSError(f"PowerShell returned invalid binary payload: {preview}") from e
 
 
 # ── Multi-strategy retry ────────────────────────────────────────

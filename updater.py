@@ -161,6 +161,8 @@ def _download_to_temp(url: str, settings: dict = None) -> str:
         ua = f"SbtDeskTran/{current_version()}"
         data, _ = request_with_strategies(url, user_agent=ua, working_strategy=-1,
                                           settings=settings)
+        if data.strip() == b"System.Byte[]":
+            raise ValueError("Downloaded update payload is not binary data")
         with open(path, "wb") as out:
             out.write(data)
         return path
@@ -176,6 +178,10 @@ def _extract_exe(download_path: str) -> str:
     target_dir = tempfile.mkdtemp(prefix="SbtDeskTran-update-extract-")
     target_exe = os.path.join(target_dir, APP_EXE_NAME)
 
+    expected_zip = download_path.lower().endswith(".zip")
+    if expected_zip and not zipfile.is_zipfile(download_path):
+        raise ValueError("Downloaded update is not a valid zip archive")
+
     if zipfile.is_zipfile(download_path):
         with zipfile.ZipFile(download_path) as archive:
             exe_names = [
@@ -189,7 +195,18 @@ def _extract_exe(download_path: str) -> str:
     else:
         shutil.copy2(download_path, target_exe)
 
+    _validate_windows_exe(target_exe)
     return target_exe
+
+
+def _validate_windows_exe(path: str) -> None:
+    try:
+        with open(path, "rb") as f:
+            header = f.read(2)
+    except Exception as exc:
+        raise ValueError(f"Could not read downloaded executable: {exc}") from exc
+    if header != b"MZ":
+        raise ValueError("Downloaded update does not look like a valid Windows executable")
 
 
 def _write_helper_batch(new_exe: str, current_exe: str, restart: bool) -> str:

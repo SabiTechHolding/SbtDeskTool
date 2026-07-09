@@ -22,6 +22,19 @@ Diff:
 - Added recovery for previously corrupted Diff left-pane width/ratio
   settings that pinned the left side near its minimum width on remote PCs.
 
+Auto Update:
+- Fixed GitHub release asset matching for versioned packages named like
+  SbtDeskTran-2026.07.07.8.zip.
+- Fixed PowerShell fallback download for binary release assets. The fallback
+  now streams bytes and Base64-decodes them in Python instead of writing the
+  string "System.Byte[]" into the downloaded zip.
+- Added update package validation before replacing the running executable:
+  downloaded .zip files must be valid zip archives, the archive must contain
+  SbtDeskTran.exe, and the extracted executable must have a valid Windows
+  MZ header.
+- Prevented invalid HTML/error/proxy responses or malformed downloads from
+  being copied over SbtDeskTran.exe during self-update.
+
 ----------------------------------------------------------------------
 v2026.07.08 — Editable diff, auto-save notes, large translate chunks, CI pipeline
 ----------------------------------------------------------------------

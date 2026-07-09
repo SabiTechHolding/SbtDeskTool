@@ -60,9 +60,9 @@ create release assets after `dist\SbtDeskTran.exe` exists:
 
 ```bat
 python ci_release.py set-version %GITHUB_REF_NAME%
-python ci_release.py ensure-changes %GITHUB_REF_NAME% --commit --push
 python -m PyInstaller ...
 python ci_release.py assets %GITHUB_REF_NAME%
+python ci_release.py release %GITHUB_REF_NAME%
 ```
 
 Tags like `v2026.07.07.8` are accepted; `version.py` uses `2026.07.07.8`.
@@ -70,9 +70,12 @@ If CI passes release text such as
 `[v2026.07.07.8](https://github.com/.../releases/tag/v2026.07.07.8)`,
 the release helper extracts the first numeric tag automatically.
 
-If `version_changes.txt` has not changed since the previous release tag, the
-release helper appends an auto-generated section from commits and changed files
-since that tag, then optionally commits and pushes it.
+The assets/release helpers update `Last released:` to the current tag
+automatically. If no matching `version_changes.txt` section exists for the
+release date, the helper appends an auto-generated section from commits and
+changed files since the previous release tag. The release step commits and
+pushes `version_changes.txt` when it changes, then uploads both
+`SbtDeskTran-<version>.zip` and `version_changes.txt`.
 
 Use a full checkout in CI, including tags, so the helper can find the previous
 release tag. For GitHub Actions, set `fetch-depth: 0` on `actions/checkout`.

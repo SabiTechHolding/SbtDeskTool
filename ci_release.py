@@ -119,11 +119,19 @@ def _parse_last_released(text: str) -> str:
 
 
 def _set_last_released(text: str, version: str) -> str:
-    return re.sub(
-        r"(?m)^Last released:.*$",
-        f"Last released: v{version}",
-        text,
-    )
+    line = f"Last released: v{version}"
+    if re.search(r"(?m)^Last released:.*$", text):
+        return re.sub(r"(?m)^Last released:.*$", line, text)
+
+    lines = text.splitlines()
+    insert_at = 0
+    if lines and lines[0].strip():
+        insert_at = 1
+        while insert_at < len(lines) and lines[insert_at].strip() == "":
+            insert_at += 1
+    lines.insert(insert_at, "")
+    lines.insert(insert_at + 1, line)
+    return "\n".join(lines)
 
 
 def _find_section_versions(text: str) -> list[tuple[tuple, int, int]]:
@@ -167,9 +175,52 @@ def _build_section(version: str, body: str) -> str:
     return f"\n\n{SEP}\nv{version} — Auto-generated\n{SEP}\n\n{body}\n\n"
 
 
+def _insert_after_last_released(text: str, section: str) -> str:
+    lines = text.splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.startswith("Last released:"):
+            insert_at = i + 1
+            while insert_at < len(lines) and lines[insert_at].strip() == "":
+                insert_at += 1
+            break
+    lines.insert(insert_at, section.strip())
+    return "\n".join(lines)
+
+
+def prepare_version_changes(version: str) -> tuple[str, bool]:
+    today = dt.date.today().isoformat()
+    original = _read_changes()
+    text = original or "SbtDeskTran version changes\n"
+    date_tuple = _ver_tuple(version)[:3]
+
+    matched = None
+    for vt, title_idx, close_idx in _find_section_versions(text):
+        if vt[:3] == date_tuple:
+            matched = (title_idx, close_idx)
+            break
+
+    if matched:
+        title_idx, close_idx = matched
+        notes = _extract_section_body(text, title_idx, close_idx)
+    else:
+        base = last_release_tag()
+        summary = change_summary(base)
+        section = _build_section(version, summary)
+        text = _insert_after_last_released(_set_last_released(text, version), section)
+        notes = f"Auto-generated release notes for v{version} ({today}).\n\n{summary}"
+
+    text = _set_last_released(text, version)
+    updated = text != original
+    if updated:
+        _write_changes(text.rstrip() + "\n")
+    return notes, updated
+
+
 # ── Commands ────────────────────────────────────────────────────
 
 def create_assets(version: str) -> None:
+    prepare_version_changes(version)
     DIST_DIR.mkdir(exist_ok=True)
     exe_path = DIST_DIR / APP_EXE_NAME
     if not exe_path.exists():
@@ -208,43 +259,9 @@ def do_release(version: str, *, push_tag: bool = False, draft: bool = False) -> 
     5. Create the GitHub release.
     """
     tag = f"v{version}"
-    today = dt.date.today().isoformat()
-    text = _read_changes()
-    date_tuple = _ver_tuple(version)[:3]
+    notes, _ = prepare_version_changes(version)
 
-    # Find a manual section whose version shares the same date prefix
-    sections = _find_section_versions(text)
-    matched = None
-    for vt, ti, ci in sections:
-        if vt[:3] == date_tuple:
-            matched = (ti, ci)
-            break
-
-    if matched:
-        title_idx, close_idx = matched
-        body = _extract_section_body(text, title_idx, close_idx)
-        notes = body
-        updated = False
-    else:
-        base = last_release_tag()
-        summary = change_summary(base)
-        section = _build_section(version, summary)
-        text = _set_last_released(text, version)
-        lines = text.splitlines()
-        insert_at = 0
-        for i, line in enumerate(lines):
-            if line.startswith("Last released:"):
-                insert_at = i + 1
-                while insert_at < len(lines) and lines[insert_at].strip() == "":
-                    insert_at += 1
-                break
-        lines.insert(insert_at, section.strip())
-        text = "\n".join(lines)
-        _write_changes(text)
-        notes = f"Auto-generated release notes for v{version} ({today}).\n\n{summary}"
-        updated = True
-
-    if updated:
+    if not git_success("diff", "--quiet", "--", VERSION_CHANGES.as_posix()):
         git_configure()
         run_git("add", VERSION_CHANGES.as_posix())
         run_git("commit", "-m", f"Update version changes for v{version} [skip ci]")
@@ -264,6 +281,9 @@ def do_release(version: str, *, push_tag: bool = False, draft: bool = False) -> 
         cmd.append("--draft")
     if zip_path.exists():
         cmd.append(str(zip_path))
+    changes_asset = DIST_DIR / "version_changes.txt"
+    if changes_asset.exists():
+        cmd.append(str(changes_asset))
 
     result = subprocess.run(cmd, capture_output=True)
     stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
