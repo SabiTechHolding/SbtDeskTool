@@ -419,18 +419,12 @@ class SbtDeskTranApp:
 
         if info.notes:
             notes_lines = info.notes.strip().split("\n")
-            short_notes = []
-            seen_header = False
-            for line in notes_lines:
-                stripped = line.strip()
-                if stripped.startswith("#") or stripped.startswith(("v", "V")) and len(stripped) < 20:
-                    if not seen_header:
-                        seen_header = True
-                        short_notes.append(stripped)
-                    continue
-                short_notes.append(stripped)
-            short_text = "\n".join(short_notes).strip()
-            if not short_text:
+            sep_indices = [i for i, line in enumerate(notes_lines) if line.strip().startswith("---")]
+            if len(sep_indices) >= 3:
+                short_text = "\n".join(notes_lines[sep_indices[0]:sep_indices[2]]).strip()
+            elif len(sep_indices) == 2:
+                short_text = "\n".join(notes_lines[sep_indices[0]:]).strip()
+            else:
                 short_text = info.notes.strip()
 
             notes_frame = tk.Frame(body, bg=t["bg"])

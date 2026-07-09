@@ -40,6 +40,12 @@ Auto Update:
   MZ header.
 - Prevented invalid HTML/error/proxy responses or malformed downloads from
   being copied over SbtDeskTran.exe during self-update.
+- Self-update now waits for the old process to exit, verifies the copied exe
+  size, delays briefly before restart, and cleans staged update files after a
+  successful replacement.
+- The app window icon is applied from the bundled icon resource, and the CI
+  PyInstaller build now bundles icon.ico so the title bar can use the same
+  icon as the executable.
 
 ----------------------------------------------------------------------
 v2026.07.08 — Editable diff, auto-save notes, large translate chunks, CI pipeline

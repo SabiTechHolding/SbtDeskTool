@@ -16,7 +16,7 @@ import threading
 import urllib.parse
 import zipfile
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 from app_paths import app_dir
 from network import request_with_strategies
@@ -174,7 +174,7 @@ def _download_to_temp(url: str, settings: dict = None) -> str:
         raise
 
 
-def _extract_exe(download_path: str) -> str:
+def _extract_exe(download_path: str) -> Tuple[str, str]:
     target_dir = tempfile.mkdtemp(prefix="SbtDeskTran-update-extract-")
     target_exe = os.path.join(target_dir, APP_EXE_NAME)
 
@@ -196,7 +196,7 @@ def _extract_exe(download_path: str) -> str:
         shutil.copy2(download_path, target_exe)
 
     _validate_windows_exe(target_exe)
-    return target_exe
+    return target_exe, target_dir
 
 
 def _validate_windows_exe(path: str) -> None:
@@ -209,12 +209,20 @@ def _validate_windows_exe(path: str) -> None:
         raise ValueError("Downloaded update does not look like a valid Windows executable")
 
 
-def _write_helper_batch(new_exe: str, current_exe: str, restart: bool) -> str:
+def _write_helper_batch(
+    new_exe: str, current_exe: str, restart: bool,
+    download_path: str = "", extract_dir: str = "",
+) -> str:
     bat_path = os.path.join(tempfile.gettempdir(), "SbtDeskTran-apply-update.bat")
     backup_exe = current_exe + ".bak"
     restart_line = f'start "" "{current_exe}"' if restart else "rem restart disabled"
+    cleanup_lines = ""
+    if download_path:
+        cleanup_lines += f'\nif exist "{download_path}" del /f /q "{download_path}" >nul 2>&1'
+    if extract_dir:
+        cleanup_lines += f'\nif exist "{extract_dir}" rd /s /q "{extract_dir}" >nul 2>&1'
     script = f"""@echo off
-setlocal
+setlocal EnableDelayedExpansion
 set "NEW_EXE={new_exe}"
 set "CURRENT_EXE={current_exe}"
 set "BACKUP_EXE={backup_exe}"
@@ -234,8 +242,18 @@ if errorlevel 1 (
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul
     exit /b 1
 )
+for %%A in ("%NEW_EXE%") do set "NEW_SIZE=%%~zA"
+for %%A in ("%CURRENT_EXE%") do set "CUR_SIZE=%%~zA"
+if not "!NEW_SIZE!"=="!CUR_SIZE!" (
+    if exist "%CURRENT_EXE%" del /f /q "%CURRENT_EXE%" >nul 2>&1
+    if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul
+    exit /b 1
+)
+{cleanup_lines}
+timeout /t 2 /nobreak >nul
 {restart_line}
 endlocal
+del /f /q "%~f0" >nul 2>&1
 """
     with open(bat_path, "w", encoding="mbcs") as f:
         f.write(script)
@@ -251,8 +269,8 @@ def download_and_stage_update(info: UpdateInfo, restart: bool = True, settings: 
         current_exe = sys.executable
 
     download_path = _download_to_temp(info.download_url, settings=settings)
-    new_exe = _extract_exe(download_path)
-    return _write_helper_batch(new_exe, current_exe, restart)
+    new_exe, extract_dir = _extract_exe(download_path)
+    return _write_helper_batch(new_exe, current_exe, restart, download_path, extract_dir)
 
 
 def run_update_helper(helper_bat: str) -> None:

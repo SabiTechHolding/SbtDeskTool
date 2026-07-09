@@ -60,7 +60,8 @@ create release assets after `dist\SbtDeskTran.exe` exists:
 
 ```bat
 python ci_release.py set-version %GITHUB_REF_NAME%
-python -m PyInstaller ...
+python -m PyInstaller --onefile --windowed --name "SbtDeskTran" ^
+  --icon=icon.ico --add-data "icon.ico;." ...
 python ci_release.py assets %GITHUB_REF_NAME%
 python ci_release.py release %GITHUB_REF_NAME%
 ```

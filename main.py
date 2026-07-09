@@ -41,6 +41,26 @@ DEFAULT_SETTINGS = {
 }
 
 
+def resource_path(filename: str) -> str:
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, filename)
+
+
+def apply_app_icon(root: tk.Tk) -> None:
+    for path in (
+        resource_path("icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"),
+    ):
+        if not os.path.exists(path):
+            continue
+        try:
+            root.iconbitmap(path)
+            return
+        except Exception:
+            pass
+
+
 def load_settings() -> dict:
     for path in data_file_candidates("settings.json"):
         if not os.path.exists(path):
@@ -80,6 +100,7 @@ def main():
     from version import __version__
     root = tk.Tk()
     root.title(f"SbtDeskTran v{__version__}")
+    apply_app_icon(root)
 
     # High-DPI awareness on Windows
     try:

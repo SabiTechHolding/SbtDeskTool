@@ -39,7 +39,7 @@ jobs:
       - name: Build EXE
         run: |
           python -m PyInstaller --onefile --windowed --name "SbtDeskTran" `
-            --icon=icon.ico --collect-all tkinter `
+            --icon=icon.ico --add-data "icon.ico;." --collect-all tkinter `
             --hidden-import tkinter --hidden-import tkinter.ttk `
             --hidden-import json --hidden-import threading `
             --hidden-import urllib.request --hidden-import urllib.parse --hidden-import urllib.error `
