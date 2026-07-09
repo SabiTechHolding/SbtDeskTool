@@ -524,8 +524,6 @@ class SbtDeskTranApp:
                     win.focus_force()
                     win.grab_set()
                     pw.wait_window(win)
-                    updater.run_update_helper(helper)
-                    self.root.destroy()
 
                 self.root.after(0, done)
             except Exception as exc:
