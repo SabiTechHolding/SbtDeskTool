@@ -203,6 +203,7 @@ class SbtDeskTranApp:
         # ── Content ────────────────────────────
         self.content = tk.Frame(self.root, bg=t["bg"])
         self.content.grid(row=2, column=0, sticky="nsew")
+        self._tab_frames = {}
 
         # ── Status bar — row 3, always at bottom ─
         self.statusbar = tk.Frame(self.root, bg=t["status_bg"], height=22)
@@ -537,6 +538,32 @@ class SbtDeskTranApp:
     # ──────────────────────────────────────────
     # Tab switching
     # ──────────────────────────────────────────
+    def _discard_tab_frame(self, tab_id=None):
+        frames = self._tab_frames if tab_id is None else {tab_id: self._tab_frames.get(tab_id)}
+        for tid, frame in list(frames.items()):
+            if frame is None:
+                continue
+            try:
+                frame.destroy()
+            except Exception:
+                pass
+            self._tab_frames.pop(tid, None)
+
+    def _activate_tab_status(self, tab_id: str):
+        try:
+            if tab_id == "tran" and hasattr(self, "src_text"):
+                self._status_widget = self.src_text
+                self._status_panel = "Source"
+            elif tab_id == "diff" and hasattr(self, "diff_left"):
+                self._status_widget = self.diff_left
+                self._status_panel = "Left"
+            elif tab_id == "note" and hasattr(self, "note_body"):
+                self._status_widget = self.note_body
+                self._status_panel = "Note"
+            self._update_status_metrics()
+        except Exception:
+            pass
+
     def _switch_tab(self, tab_id: str, force: bool = False):
         if tab_id == self._tab and not force:
             return
@@ -577,22 +604,35 @@ class SbtDeskTranApp:
                 self.langbar.grid_remove()
             self.statusbar.grid(row=3, column=0, sticky="ew")
 
-        # Rebuild content area
-        for w in self.content.winfo_children():
-            w.destroy()
-        {"tran": self._build_tran_tab,
-         "diff": self._build_diff_tab,
-         "note": self._build_note_tab}.get(tab_id, self._build_tran_tab)()
+        if force:
+            self._discard_tab_frame(tab_id)
+
+        for tid, frame in list(self._tab_frames.items()):
+            try:
+                if tid != tab_id:
+                    frame.pack_forget()
+            except Exception:
+                pass
+
+        if tab_id not in self._tab_frames:
+            self._tab_frames[tab_id] = tk.Frame(self.content, bg=self.theme["bg"])
+            {"tran": self._build_tran_tab,
+             "diff": self._build_diff_tab,
+             "note": self._build_note_tab}.get(tab_id, self._build_tran_tab)()
+
+        self._tab_frames[tab_id].pack(fill="both", expand=True)
+        self._activate_tab_status(tab_id)
 
     # ──────────────────────────────────────────
     # TAB: Translate
     # ──────────────────────────────────────────
     def _build_tran_tab(self):
         t = self.theme
+        parent = self._tab_frames.get("tran", self.content)
 
         # ── Split panes ──────────────────────────────────────────────────────
         orient = tk.HORIZONTAL if self._layout == "horizontal" else tk.VERTICAL
-        pw = tk.PanedWindow(self.content, orient=orient,
+        pw = tk.PanedWindow(parent, orient=orient,
             bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         pw.pack(fill="both", expand=True)
 
@@ -683,9 +723,10 @@ class SbtDeskTranApp:
     # ──────────────────────────────────────────
     def _build_diff_tab(self):
         t = self.theme
+        parent = self._tab_frames.get("diff", self.content)
 
         self.diff_editor = VirtualDiffEditor(
-            self.content,
+            parent,
             theme=t,
             settings=self.settings,
             save_fn=self.save_fn,
@@ -897,7 +938,8 @@ class SbtDeskTranApp:
     # ──────────────────────────────────────────
     def _build_note_tab(self):
         t = self.theme
-        outer = tk.PanedWindow(self.content, orient=tk.HORIZONTAL,
+        parent = self._tab_frames.get("note", self.content)
+        outer = tk.PanedWindow(parent, orient=tk.HORIZONTAL,
             bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         outer.pack(fill="both", expand=True)
 
@@ -1533,6 +1575,7 @@ class SbtDeskTranApp:
         self._apply_bar_visibility()
         if self._compact:
             self._build_compact_bar()
+        self._discard_tab_frame()
         # Rebuild tab content để ẩn/hiện inline controls
         self._switch_tab(self._tab, force=True)
         self.save_fn(self.settings)
@@ -1543,6 +1586,7 @@ class SbtDeskTranApp:
         self.settings["layout"] = self._layout
         try: self.layout_btn.config(text="⊟" if self._layout=="horizontal" else "⊞")
         except Exception: pass
+        self._discard_tab_frame("tran")
         if self._tab == "tran":
             self._switch_tab("tran", force=True)
         self.save_fn(self.settings)
@@ -1553,6 +1597,7 @@ class SbtDeskTranApp:
         self.settings["word_wrap"] = self._word_wrap
         try: self.wrap_btn.set_toggled(self._word_wrap)
         except Exception: pass
+        self._discard_tab_frame()
         self._switch_tab(self._tab, force=True)
         self.save_fn(self.settings)
 

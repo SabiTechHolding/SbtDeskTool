@@ -61,6 +61,7 @@ class VirtualDiffEditor(tk.Frame):
         self._find_matches: list[tuple[str, int, int, int]] = []
         self._find_index = -1
         self._find_timer = None
+        self._sash_restore_attempts = 0
 
         self.auto_var = tk.BooleanVar(value=settings.get("diff_auto", True))
         self.word_diff_var = tk.BooleanVar(value=settings.get("diff_word_diff", True))
@@ -215,6 +216,7 @@ class VirtualDiffEditor(tk.Frame):
         self._build_detail_panel()
         self.after_idle(self._restore_sash)
         self.after(80, self._restore_sash)
+        self.after(240, self._restore_sash)
 
     def _build_search_bar(self):
         t = self.theme
@@ -424,20 +426,37 @@ class VirtualDiffEditor(tk.Frame):
 
     def _save_sash(self, _=None):
         try:
+            width = self.pane.winfo_width()
+            if not self.pane.winfo_ismapped() or width < 220:
+                return
             x = self.pane.sash_coord(0)[0]
+            if x <= 100 or x >= width - 100:
+                return
             self.settings["diff_left_width"] = max(100, x)
-            self.settings["diff_left_ratio"] = x / max(1, self.pane.winfo_width())
+            self.settings["diff_left_ratio"] = x / width
             self.save_debounced()
         except Exception:
             pass
 
     def _restore_sash(self):
         try:
+            width = self.pane.winfo_width()
+            if not self.pane.winfo_ismapped() or width < 220:
+                if self._sash_restore_attempts < 8:
+                    self._sash_restore_attempts += 1
+                    self.after(80, self._restore_sash)
+                return
+            self._sash_restore_attempts = 0
             ratio = self.settings.get("diff_left_ratio")
             if ratio is None:
                 saved = self.settings.get("diff_left_width", 0)
-                ratio = saved / max(1, self.pane.winfo_width()) if saved else 0.5
-            x = int(max(0.1, min(0.9, float(ratio))) * max(1, self.pane.winfo_width()))
+                ratio = saved / width if saved else 0.5
+            ratio = float(ratio)
+            saved = self.settings.get("diff_left_width", 0)
+            if ratio <= 0.12 and saved <= 120:
+                ratio = 0.5
+            ratio = max(0.1, min(0.9, ratio))
+            x = int(ratio * width)
             self.pane.sash_place(0, max(100, x), self.pane.sash_coord(0)[1])
         except Exception:
             pass

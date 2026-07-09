@@ -5,6 +5,24 @@ Keep release/change details here instead of putting them in the release body.
 Last released: v2026.07.08.9
 
 ----------------------------------------------------------------------
+v2026.07.09 - Persistent tab UI and Diff pane stability
+----------------------------------------------------------------------
+
+App:
+- Tab switching now keeps each tab UI alive and only hides/shows cached
+  tab frames, preserving pane sizes, cursor/selection, scroll position,
+  and undo state during normal tab changes.
+- Compact, word-wrap, theme, and Translate layout changes still rebuild
+  the affected tab UI intentionally so their controls and layout update
+  correctly.
+
+Diff:
+- Prevented Diff pane sash settings from being saved/restored while the
+  PanedWindow is hidden or still reporting a temporary layout width.
+- Added recovery for previously corrupted Diff left-pane width/ratio
+  settings that pinned the left side near its minimum width on remote PCs.
+
+----------------------------------------------------------------------
 v2026.07.08 — Editable diff, auto-save notes, large translate chunks, CI pipeline
 ----------------------------------------------------------------------
 
