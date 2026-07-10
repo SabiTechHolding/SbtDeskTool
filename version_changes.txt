@@ -5,7 +5,7 @@ Keep release/change details here instead of putting them in the release body.
 Last released: v2026.07.10.28
 
 -----------------------------------------------------------------
-v2026.07.10 - Faster translation updates and network fallback
+v2026.07.10 - Faster translation, network fallback, and auto-update fixes
 -----------------------------------------------------------------
 
 Network module:
@@ -17,6 +17,10 @@ Translate:
   deleted parts are removed, and only new or edited parts are translated again.
 - This makes auto-translate faster and avoids re-translating the whole text
   after small changes.
+
+Auto Update:
+- Fixed a self-update hang caused by a stuck find.exe window. The updater now
+  replaces the exe by retrying file move/copy directly.
 
 -----------------------------------------------------------------
 v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability, Update dialog UI

@@ -238,24 +238,29 @@ set "CURRENT_EXE={current_exe}"
 set "BACKUP_EXE={backup_exe}"
 set "PID={os.getpid()}"
 set "APP_DIR="
-set /a WAIT_COUNT=0
+set /a RETRY_COUNT=0
 for %%I in ("%CURRENT_EXE%") do set "APP_DIR=%%~dpI"
 
-:wait_app
-tasklist /FI "PID eq %PID%" | find "%PID%" >nul
-if not errorlevel 1 (
-    set /a WAIT_COUNT+=1
-    if !WAIT_COUNT! GEQ 30 taskkill /PID %PID% /F >nul 2>&1
-    timeout /t 1 /nobreak >nul
-    goto wait_app
-)
+timeout /t 2 /nobreak >nul
+taskkill /PID %PID% /T /F >nul 2>&1
 
-if exist "%BACKUP_EXE%" del /f /q "%BACKUP_EXE%"
-if exist "%CURRENT_EXE%" move /y "%CURRENT_EXE%" "%BACKUP_EXE%" >nul
-copy /y "%NEW_EXE%" "%CURRENT_EXE%" >nul
+:replace_app
+set /a RETRY_COUNT+=1
+if exist "%BACKUP_EXE%" del /f /q "%BACKUP_EXE%" >nul 2>&1
+if exist "%CURRENT_EXE%" (
+    move /y "%CURRENT_EXE%" "%BACKUP_EXE%" >nul 2>&1
+    if errorlevel 1 (
+        if !RETRY_COUNT! GEQ 30 exit /b 1
+        timeout /t 1 /nobreak >nul
+        goto replace_app
+    )
+)
+copy /y "%NEW_EXE%" "%CURRENT_EXE%" >nul 2>&1
 if errorlevel 1 (
-    if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul
-    exit /b 1
+    if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul 2>&1
+    if !RETRY_COUNT! GEQ 30 exit /b 1
+    timeout /t 1 /nobreak >nul
+    goto replace_app
 )
 for %%A in ("%NEW_EXE%") do set "NEW_SIZE=%%~zA"
 for %%A in ("%CURRENT_EXE%") do set "CUR_SIZE=%%~zA"
