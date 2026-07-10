@@ -12,6 +12,12 @@ Network module:
 - Added proxy detection, opener builder, HTTP request functions.
 - Added WinINet fallback for proxy/PAC and translation.
 
+Translate:
+- Translate now updates smarter after you edit text. Unchanged parts are kept,
+  deleted parts are removed, and only new or edited parts are translated again.
+- This makes auto-translate faster and avoids re-translating the whole text
+  after small changes.
+
 -----------------------------------------------------------------
 v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability, Update dialog UI
 -----------------------------------------------------------------

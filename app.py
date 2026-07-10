@@ -4,7 +4,7 @@ Layout: TopBar (tabs left, modes right) -> LangBar (tran only) -> Content -> Sta
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
-import threading, json, os, sys, ctypes
+import threading, json, os, sys, ctypes, difflib
 
 from translator_engine import (
     LANGUAGES, LANG_CODE_TO_NAME, get_engine, ENGINES, TranslationError
@@ -123,6 +123,8 @@ class SbtDeskTranApp:
         self._note_timer = None
         self._src_cache  = ""
         self._dst_cache  = ""
+        self._tran_units = []
+        self._tran_signature = None
         self._src_snapshot = None
         self._dst_snapshot = None
         # diff tab preserved text
@@ -1388,12 +1390,111 @@ class SbtDeskTranApp:
             self._timer = self.root.after(700, self._do_translate)
         except Exception: pass
 
+    def _split_translation_units(self, text):
+        units = []
+        current = []
+        for line in text.splitlines(keepends=True):
+            if line.strip():
+                current.append(line)
+            else:
+                if current:
+                    units.append("".join(current))
+                    current = []
+                units.append(line)
+        if current:
+            units.append("".join(current))
+        if not units and text:
+            units.append(text)
+        return units
+
+    def _split_trailing_newlines(self, text):
+        idx = len(text)
+        while idx > 0 and text[idx - 1] in "\r\n":
+            idx -= 1
+        return text[:idx], text[idx:]
+
+    def _translate_unit(self, engine, unit, src_code, dest_code):
+        if not unit.strip():
+            return {
+                "source": unit,
+                "translated": unit,
+                "detected_lang": src_code,
+                "chunks": 0,
+                "reused": False,
+            }
+        core, trailing_newlines = self._split_trailing_newlines(unit)
+        res = engine.translate(core or unit, src=src_code, dest=dest_code, settings=self.settings)
+        return {
+            "source": unit,
+            "translated": res.get("translated", "") + trailing_newlines,
+            "detected_lang": res.get("detected_lang", src_code),
+            "chunks": res.get("chunks", 1),
+            "reused": False,
+        }
+
+    def _translate_incremental(self, text, eng_name, src_code, dest_code):
+        signature = (eng_name, src_code, dest_code)
+        old_units = self._tran_units if self._tran_signature == signature else []
+        old_sources = [self._split_trailing_newlines(unit.get("source", ""))[0] for unit in old_units]
+        new_units = self._split_translation_units(text)
+        new_sources = [self._split_trailing_newlines(unit)[0] for unit in new_units]
+        engine = get_engine(eng_name)
+        matcher = difflib.SequenceMatcher(None, old_sources, new_sources, autojunk=False)
+
+        next_units = []
+        detected_lang = src_code
+        chunks = 0
+        reused = 0
+        translated_new = 0
+
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                for offset, unit in enumerate(old_units[i1:i2]):
+                    source = new_units[j1 + offset]
+                    _, trailing_newlines = self._split_trailing_newlines(source)
+                    translated_core, _ = self._split_trailing_newlines(unit.get("translated", ""))
+                    copied = dict(unit)
+                    copied["source"] = source
+                    copied["translated"] = translated_core + trailing_newlines
+                    copied["reused"] = True
+                    next_units.append(copied)
+                    reused += 1
+                    detected = copied.get("detected_lang")
+                    if detected and detected != "auto":
+                        detected_lang = detected
+                continue
+
+            for source in new_units[j1:j2]:
+                unit = self._translate_unit(engine, source, src_code, dest_code)
+                next_units.append(unit)
+                if source.strip():
+                    translated_new += 1
+                chunks += unit.get("chunks", 0)
+                detected = unit.get("detected_lang")
+                if detected and detected != "auto":
+                    detected_lang = detected
+
+        return {
+            "translated": "".join(unit.get("translated", "") for unit in next_units),
+            "detected_lang": detected_lang,
+            "source": eng_name,
+            "chunks": chunks,
+            "units": next_units,
+            "reused_units": reused,
+            "translated_units": translated_new,
+            "total_units": len(next_units),
+            "signature": signature,
+        }
+
     def _do_translate(self):
         self._save_translate_options()
         try: text = self.src_text.get("1.0","end-1c")
         except Exception: return
         if not text.strip():
-            self._set_dst(""); return
+            self._set_dst("")
+            self._tran_units = []
+            self._tran_signature = None
+            return
         if self._busy:
             self._pending_text = text
             return
@@ -1408,13 +1509,15 @@ class SbtDeskTranApp:
 
         def worker():
             try:
-                res = get_engine(eng_name).translate(text, src=src_code, dest=dest_code, settings=self.settings)
+                res = self._translate_incremental(text, eng_name, src_code, dest_code)
                 def done():
                     translated = res.get("translated","")
                     detected   = res.get("detected_lang", src_code)
                     det_name   = LANG_CODE_TO_NAME.get(detected, detected)
                     self._src_cache = text
                     self._dst_cache = translated
+                    self._tran_units = res.get("units", [])
+                    self._tran_signature = res.get("signature")
                     self._src_snapshot = None
                     self._dst_snapshot = None
                     self._set_dst(translated)
@@ -1423,7 +1526,14 @@ class SbtDeskTranApp:
                         self.det_lbl.config(text=lbl)
                     except Exception: pass
                     chunks = res.get("chunks", 1)
-                    suffix = f" ({chunks} chunks)" if chunks and chunks > 1 else ""
+                    translated_units = res.get("translated_units", 0)
+                    reused_units = res.get("reused_units", 0)
+                    suffix_parts = []
+                    if chunks and chunks > 1:
+                        suffix_parts.append(f"{chunks} chunks")
+                    if reused_units:
+                        suffix_parts.append(f"{translated_units} new, {reused_units} reused")
+                    suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
                     self._set_status(f"Translated via {eng_name}{suffix}","success")
                     self._busy = False
                     if self._pending_text:
@@ -1463,6 +1573,8 @@ class SbtDeskTranApp:
             self._set_dst("")
             self.det_lbl.config(text="  Translated")
             self._src_cache = self._dst_cache = ""
+            self._tran_units = []
+            self._tran_signature = None
             self._src_snapshot = self._dst_snapshot = None
             self._set_status("Cleared")
             self._update_status_metrics()
@@ -1480,6 +1592,8 @@ class SbtDeskTranApp:
             dt = self.dest_text.get("1.0","end-1c")
             self.src_text.delete("1.0","end"); self.src_text.insert("1.0",dt)
             self._set_dst(st)
+            self._tran_units = []
+            self._tran_signature = None
             self._src_snapshot = self._dst_snapshot = None
         except Exception: pass
         self._do_translate()
