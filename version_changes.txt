@@ -2,7 +2,7 @@ SbtDeskTran version changes
 
 Keep release/change details here instead of putting them in the release body.
 
-Last released: v2026.07.10.28
+Last released: v2026.07.10.29
 
 -----------------------------------------------------------------
 v2026.07.10 - Network module
