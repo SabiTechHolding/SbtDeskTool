@@ -2,7 +2,7 @@ SbtDeskTran version changes
 
 Keep release/change details here instead of putting them in the release body.
 
-Last released: v2026.07.09.26
+Last released: v2026.07.09.27
 
 -----------------------------------------------------------------
 v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability, Update dialog UI
