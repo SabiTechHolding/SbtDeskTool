@@ -5,15 +5,13 @@ Keep release/change details here instead of putting them in the release body.
 Last released: v2026.07.10.28
 
 -----------------------------------------------------------------
-v2026.07.10.28 — Auto-generated
+v2026.07.10 - Network module
 -----------------------------------------------------------------
 
-Commits:
-- 72551fd Merge branch 'main' of https://github.com/SabiTechHolding/SbtDeskTran
-- 6567426 fix: update InternetOpenUrlW argument type to use c_size_t for compatibility
+Network module:
+- Added proxy detection, opener builder, HTTP request functions.
+- Added WinINet fallback for proxy/PAC and translation.
 
-Changed files:
-- network.py
 -----------------------------------------------------------------
 v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability, Update dialog UI
 -----------------------------------------------------------------
