@@ -25,6 +25,7 @@ from version import __version__
 
 
 APP_EXE_NAME = "SbtDeskTran.exe"
+STAGED_EXE_SUFFIX = ".update"
 UPDATE_ARCHIVE_PREFIX = "SbtDeskTran-"
 LEGACY_UPDATE_ARCHIVE_NAME = "SbtDeskTran.zip"
 VERSION_CHANGES_NAME = "version_changes.txt"
@@ -243,13 +244,33 @@ def _file_sha256(path: str) -> str:
     return digest.hexdigest().upper()
 
 
+def _stage_exe_in_app_dir(new_exe: str, current_exe: str) -> str:
+    base, ext = os.path.splitext(current_exe)
+    staged_exe = f"{base}{STAGED_EXE_SUFFIX}{ext or '.exe'}"
+    expected_size = os.path.getsize(new_exe)
+    expected_sha256 = _file_sha256(new_exe)
+
+    _cleanup_path(staged_exe)
+    shutil.copy2(new_exe, staged_exe)
+    try:
+        _validate_windows_exe(staged_exe)
+        if os.path.getsize(staged_exe) != expected_size:
+            raise ValueError("Staged executable size does not match the downloaded update")
+        if _file_sha256(staged_exe) != expected_sha256:
+            raise ValueError("Staged executable hash does not match the downloaded update")
+        return staged_exe
+    except Exception:
+        _cleanup_path(staged_exe)
+        raise
+
+
 def _write_helper_batch(
-    new_exe: str, current_exe: str, restart: bool,
-    download_path: str = "", extract_dir: str = "",
+    staged_exe: str, current_exe: str, restart: bool,
 ) -> str:
     bat_path = os.path.join(tempfile.gettempdir(), "SbtDeskTran-apply-update.bat")
     backup_exe = current_exe + ".bak"
-    new_exe_sha256 = _file_sha256(new_exe)
+    staged_exe_size = os.path.getsize(staged_exe)
+    staged_exe_sha256 = _file_sha256(staged_exe)
     restart_block = """if defined APP_DIR (
     if "!APP_DIR:~0,2!"=="\\\\" (
         powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$wd=$env:APP_DIR; Set-Location -LiteralPath $wd; Start-Process -FilePath $env:CURRENT_EXE -WorkingDirectory $wd"
@@ -265,12 +286,7 @@ def _write_helper_batch(
 ) else (
     start "" "%CURRENT_EXE%"
 )""" if restart else "rem restart disabled"
-    cleanup_lines = ""
-    if download_path:
-        cleanup_lines += f'\nif exist "{download_path}" del /f /q "{download_path}" >nul 2>&1'
-    if extract_dir:
-        cleanup_lines += f'\nif exist "{extract_dir}" rd /s /q "{extract_dir}" >nul 2>&1'
-    cleanup_lines += r'''
+    cleanup_lines = r'''
 if defined TEMP (
     del /f /q "%TEMP%\SbtDeskTran-update-*" >nul 2>&1
     for /d %%D in ("%TEMP%\SbtDeskTran-update-extract-*") do rd /s /q "%%D" >nul 2>&1
@@ -281,10 +297,11 @@ if defined TMP (
 )'''
     script = f"""@echo off
 setlocal EnableDelayedExpansion
-set "NEW_EXE={new_exe}"
+set "STAGED_EXE={staged_exe}"
 set "CURRENT_EXE={current_exe}"
 set "BACKUP_EXE={backup_exe}"
-set "NEW_SHA256={new_exe_sha256}"
+set "STAGED_SIZE={staged_exe_size}"
+set "STAGED_SHA256={staged_exe_sha256}"
 set "PID={os.getpid()}"
 set "APP_DIR="
 set "APP_FILE="
@@ -294,6 +311,7 @@ for %%I in ("%CURRENT_EXE%") do (
     set "APP_FILE=%%~nxI"
 )
 
+if not exist "%STAGED_EXE%" exit /b 1
 timeout /t 2 /nobreak >nul
 taskkill /PID %PID% /T /F >nul 2>&1
 
@@ -311,7 +329,7 @@ if exist "%CURRENT_EXE%" (
         goto replace_app
     )
 )
-copy /b /y "%NEW_EXE%" "%CURRENT_EXE%" >nul 2>&1
+move /y "%STAGED_EXE%" "%CURRENT_EXE%" >nul 2>&1
 if errorlevel 1 (
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul 2>&1
     if !RETRY_COUNT! GEQ 30 (
@@ -321,28 +339,19 @@ if errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto replace_app
 )
-for %%A in ("%NEW_EXE%") do set "NEW_SIZE=%%~zA"
 for %%A in ("%CURRENT_EXE%") do set "CUR_SIZE=%%~zA"
-if not "!NEW_SIZE!"=="!CUR_SIZE!" (
+if not "!STAGED_SIZE!"=="!CUR_SIZE!" (
     if exist "%CURRENT_EXE%" del /f /q "%CURRENT_EXE%" >nul 2>&1
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul
-    if !RETRY_COUNT! GEQ 30 (
-        {cleanup_lines}
-        exit /b 1
-    )
-    timeout /t 1 /nobreak >nul
-    goto replace_app
+    {cleanup_lines}
+    exit /b 1
 )
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if ((Get-FileHash -LiteralPath $env:CURRENT_EXE -Algorithm SHA256).Hash -ne $env:NEW_SHA256) {{ exit 1 }}"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if ((Get-FileHash -LiteralPath $env:CURRENT_EXE -Algorithm SHA256).Hash -ne $env:STAGED_SHA256) {{ exit 1 }}"
 if errorlevel 1 (
     if exist "%CURRENT_EXE%" del /f /q "%CURRENT_EXE%" >nul 2>&1
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul 2>&1
-    if !RETRY_COUNT! GEQ 30 (
-        {cleanup_lines}
-        exit /b 1
-    )
-    timeout /t 1 /nobreak >nul
-    goto replace_app
+    {cleanup_lines}
+    exit /b 1
 )
 {cleanup_lines}
 timeout /t 3 /nobreak >nul
@@ -364,12 +373,19 @@ def download_and_stage_update(info: UpdateInfo, restart: bool = True, settings: 
         current_exe = sys.executable
 
     download_path = ""
+    extract_dir = ""
+    staged_exe = ""
     try:
         download_path = _download_to_temp(info.download_url, settings=settings)
         new_exe, extract_dir = _extract_exe(download_path)
-        return _write_helper_batch(new_exe, current_exe, restart, download_path, extract_dir)
+        staged_exe = _stage_exe_in_app_dir(new_exe, current_exe)
+        _cleanup_path(download_path)
+        _cleanup_path(extract_dir)
+        return _write_helper_batch(staged_exe, current_exe, restart)
     except Exception:
         _cleanup_path(download_path)
+        _cleanup_path(extract_dir)
+        _cleanup_path(staged_exe)
         raise
 
 

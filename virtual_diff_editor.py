@@ -112,7 +112,8 @@ class VirtualDiffEditor(tk.Frame):
 
     def _build_ui(self):
         t = self.theme
-        self._build_search_bar()
+        if not self._compact:
+            self._build_search_bar()
         self.pane = tk.PanedWindow(self, orient=tk.HORIZONTAL,
             bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         self.pane.pack(fill="both", expand=True)
@@ -196,8 +197,9 @@ class VirtualDiffEditor(tk.Frame):
             text.bind("<Control-Y>", lambda e: self.redo(), add="+")
             text.bind("<Control-a>", lambda e, w=text: self._select_all(w), add="+")
             text.bind("<Control-A>", lambda e, w=text: self._select_all(w), add="+")
-            text.bind("<Control-f>", lambda e: self._focus_find(), add="+")
-            text.bind("<Control-F>", lambda e: self._focus_find(), add="+")
+            if not self._compact:
+                text.bind("<Control-f>", lambda e: self._focus_find(), add="+")
+                text.bind("<Control-F>", lambda e: self._focus_find(), add="+")
             text.bind("<Shift-MouseWheel>", self._on_shift_mousewheel, add="+")
             text.bind("<Motion>", lambda e, s=side: self._on_pointer_motion(e, s), add="+")
             text.bind("<Leave>", lambda e: self._clear_hover_line(), add="+")
@@ -290,6 +292,8 @@ class VirtualDiffEditor(tk.Frame):
         self.render()
 
     def _toggle_find_option(self):
+        if self._compact:
+            return
         self.settings["diff_find_case"] = self.find_case_var.get()
         self.settings["diff_find_word"] = self.find_word_var.get()
         self.settings["diff_find_regex"] = self.find_regex_var.get()
@@ -297,6 +301,8 @@ class VirtualDiffEditor(tk.Frame):
         self._run_find()
 
     def _focus_find(self):
+        if self._compact or not hasattr(self, "find_entry"):
+            return "break"
         self.find_entry.focus_set()
         self.find_entry.selection_range(0, "end")
         self._run_find()
@@ -309,12 +315,16 @@ class VirtualDiffEditor(tk.Frame):
         return "break"
 
     def _clear_find(self):
+        if self._compact:
+            return "break"
         self.find_var.set("")
         self._run_find()
         self._leave_find()
         return "break"
 
     def _schedule_find(self, _=None):
+        if self._compact:
+            return
         if self._find_timer:
             self.after_cancel(self._find_timer)
         self._find_timer = self.after(120, self._run_find)
@@ -333,6 +343,8 @@ class VirtualDiffEditor(tk.Frame):
             return None, str(exc)
 
     def _run_find(self, keep_index=False):
+        if self._compact:
+            return
         if self._find_timer:
             self.after_cancel(self._find_timer)
             self._find_timer = None

@@ -704,13 +704,13 @@ class SbtDeskTranApp:
                     body = tk.Frame(win, bg=t["bg"], padx=24, pady=20)
                     body.pack(fill="both", expand=True)
 
-                    tk.Label(body, text="✓ Update downloaded successfully",
+                    tk.Label(body, text="Update is ready",
                              bg=t["bg"], fg="#2ecc71",
                              font=("Segoe UI", 13, "bold")).pack(anchor="center", pady=(0, 6))
-                    tk.Label(body, text=f"Version {info.version} has been downloaded.",
+                    tk.Label(body, text=f"Version {info.version} is ready to install.",
                              bg=t["bg"], fg=t["fg2"],
                              font=t["font_ui"]).pack(anchor="center")
-                    tk.Label(body, text="The app will now close and restart to apply the update.",
+                    tk.Label(body, text="Restart will replace the exe and launch the new app.",
                              bg=t["bg"], fg=t["fg2"],
                              font=t["font_ui"]).pack(anchor="center", pady=(4, 12))
 
@@ -943,8 +943,10 @@ class SbtDeskTranApp:
     def _build_tran_tab(self):
         t = self.theme
         parent = self._tab_frames.get("tran", self.content)
-        self.tran_find = TextFindBar(parent, t, self.settings, self.save_fn, "tran")
-        self.tran_find.pack(fill="x")
+        self.tran_find = None
+        if not self._compact:
+            self.tran_find = TextFindBar(parent, t, self.settings, self.save_fn, "tran")
+            self.tran_find.pack(fill="x")
 
         # ── Split panes ──────────────────────────────────────────────────────
         orient = tk.HORIZONTAL if self._layout == "horizontal" else tk.VERTICAL
@@ -1031,10 +1033,11 @@ class SbtDeskTranApp:
             self.dest_text.config(state="normal")
             self.dest_text.insert("1.0", self._dst_cache)
             self.dest_text.config(state="disabled")
-        self.tran_find.set_widgets((
-            ("Source", self.src_text),
-            ("Translated", self.dest_text),
-        ))
+        if self.tran_find:
+            self.tran_find.set_widgets((
+                ("Source", self.src_text),
+                ("Translated", self.dest_text),
+            ))
         self._status_widget = self.src_text
         self._status_panel = "Source"
         self._update_status_metrics()
@@ -1260,8 +1263,10 @@ class SbtDeskTranApp:
     def _build_note_tab(self):
         t = self.theme
         parent = self._tab_frames.get("note", self.content)
-        self.note_find = TextFindBar(parent, t, self.settings, self.save_fn, "note")
-        self.note_find.pack(fill="x")
+        self.note_find = None
+        if not self._compact:
+            self.note_find = TextFindBar(parent, t, self.settings, self.save_fn, "note")
+            self.note_find.pack(fill="x")
         outer = tk.PanedWindow(parent, orient=tk.HORIZONTAL,
             bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         outer.pack(fill="both", expand=True)
@@ -1308,7 +1313,8 @@ class SbtDeskTranApp:
         self.note_body.bind("<Control-MouseWheel>", self._on_zoom)
         self.note_body.bind("<KeyRelease>",          self._note_debounce)
         self._bind_status_metrics(self.note_body, "Note")
-        self.note_find.set_widgets((("Note", self.note_body),))
+        if self.note_find:
+            self.note_find.set_widgets((("Note", self.note_body),))
 
         # Sidebar — bên phải, width vừa đủ 3 nút
         saved_sb_w = self.settings.get("note_sidebar_width", 130)
@@ -1462,7 +1468,7 @@ class SbtDeskTranApp:
             self.note_title.set("")
             self.note_body.delete("1.0","end")
             self._set_note_dirty(False)
-            if hasattr(self, "note_find"):
+            if getattr(self, "note_find", None):
                 self.note_find.run_find()
             return
         self._note_idx = idx
@@ -1471,7 +1477,7 @@ class SbtDeskTranApp:
         self.note_body.delete("1.0","end")
         self.note_body.insert("1.0", n.get("body",""))
         self._set_note_dirty(False)
-        if hasattr(self, "note_find"):
+        if getattr(self, "note_find", None):
             self.note_find.run_find()
 
     def _note_save(self):
@@ -1776,7 +1782,7 @@ class SbtDeskTranApp:
             self.dest_text.config(state="disabled")
             self._dst_snapshot = None
             self._update_status_metrics()
-            if hasattr(self, "tran_find"):
+            if getattr(self, "tran_find", None):
                 self.tran_find.run_find(keep_index=True)
         except Exception: pass
 
@@ -1798,7 +1804,7 @@ class SbtDeskTranApp:
             self._src_snapshot = self._dst_snapshot = None
             self._set_status("Cleared")
             self._update_status_metrics()
-            if hasattr(self, "tran_find"):
+            if getattr(self, "tran_find", None):
                 self.tran_find.run_find()
         except Exception: pass
 
