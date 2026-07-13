@@ -32,6 +32,15 @@ VERSION_CHANGES_NAME = "version_changes.txt"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/SabiTechHolding/SbtDeskTran/releases/latest"
 ENV_RELEASE_API_URL = "SBTDESKTRAN_RELEASE_API_URL"
 PYINSTALLER_COOKIE = b"MEI\014\013\012\013\016"
+PYINSTALLER_ENV_VARS = (
+    "_MEIPASS2",
+    "_PYI_ARCHIVE_FILE",
+    "_PYI_APPLICATION_HOME_DIR",
+    "_PYI_BOOTLOADER_IGNORE_SIGNALS",
+    "_PYI_LINUX_PROCESS_NAME",
+    "_PYI_PARENT_PROCESS_LEVEL",
+    "_PYI_SPLASH_IPC",
+)
 
 
 @dataclass
@@ -244,6 +253,18 @@ def _file_sha256(path: str) -> str:
     return digest.hexdigest().upper()
 
 
+def _clean_pyinstaller_env() -> dict:
+    env = os.environ.copy()
+    for key in list(env):
+        upper_key = key.upper()
+        if upper_key.startswith("_PYI") or upper_key.startswith("PYINSTALLER_"):
+            env.pop(key, None)
+    for key in PYINSTALLER_ENV_VARS:
+        env.pop(key, None)
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def _stage_exe_in_app_dir(new_exe: str, current_exe: str) -> str:
     base, ext = os.path.splitext(current_exe)
     staged_exe = f"{base}{STAGED_EXE_SUFFIX}{ext or '.exe'}"
@@ -271,6 +292,10 @@ def _write_helper_batch(
     backup_exe = current_exe + ".bak"
     staged_exe_size = os.path.getsize(staged_exe)
     staged_exe_sha256 = _file_sha256(staged_exe)
+    pyinstaller_env_lines = "\n".join(
+        [f'set "{name}="' for name in PYINSTALLER_ENV_VARS]
+        + ['set "PYINSTALLER_RESET_ENVIRONMENT=1"']
+    )
     restart_block = """if defined APP_DIR (
     if "!APP_DIR:~0,2!"=="\\\\" (
         powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$wd=$env:APP_DIR; Set-Location -LiteralPath $wd; Start-Process -FilePath $env:CURRENT_EXE -WorkingDirectory $wd"
@@ -355,6 +380,7 @@ if errorlevel 1 (
 )
 {cleanup_lines}
 timeout /t 3 /nobreak >nul
+{pyinstaller_env_lines}
 {restart_block}
 endlocal
 del /f /q "%~f0" >nul 2>&1
@@ -403,6 +429,7 @@ def run_update_helper(helper_bat: str) -> None:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=_clean_pyinstaller_env(),
         close_fds=True,
         startupinfo=startupinfo,
         creationflags=creationflags,
