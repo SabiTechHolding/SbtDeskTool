@@ -4,19 +4,8 @@ Keep release/change details here instead of putting them in the release body.
 
 Last released: v2026.07.13.33
 
------------------------------------------------------------------
-v2026.07.13.33 — Auto-generated
------------------------------------------------------------------
-
-Commits:
-- 702d3b6 feat: implement text find bar with regex support in Translate and Notes and refine temporary file cleanup
-
-Changed files:
-- app.py
-- updater.py
-- version_changes.txt
------------------------------------------------------------------
-v2026.07.14 - Find in Translate/Notes and update temp cleanup
+---------------------------------------
+v2026.07.13 - Find in Translate/Notes and update temp cleanup
 -----------------------------------------------------------------
 
 App:
