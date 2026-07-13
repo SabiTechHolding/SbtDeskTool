@@ -21,6 +21,8 @@ Auto Update:
   cleans temp files before showing Restart.
 - Restart now only renames the staged exe into place and starts the app from
   its own folder. UNC app folders use PowerShell when CMD cannot enter them.
+- Restart clears old PyInstaller environment variables so the new app extracts
+  its own runtime instead of reusing an old _MEI temp folder.
 - Checks the PyInstaller archive and SHA-256 before replacing the app.
 
 -----------------------------------------------------------------
