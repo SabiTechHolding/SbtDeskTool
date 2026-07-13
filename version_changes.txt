@@ -2,7 +2,7 @@ SbtDeskTran version changes
 
 Keep release/change details here instead of putting them in the release body.
 
-Last released: v2026.07.13.33
+Last released: v2026.07.13.34
 
 ---------------------------------------
 v2026.07.13 - Find in Translate/Notes and update temp cleanup
