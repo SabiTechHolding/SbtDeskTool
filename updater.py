@@ -174,29 +174,45 @@ def _download_to_temp(url: str, settings: dict = None) -> str:
         raise
 
 
+def _cleanup_path(path: str) -> None:
+    if not path:
+        return
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
 def _extract_exe(download_path: str) -> Tuple[str, str]:
     target_dir = tempfile.mkdtemp(prefix="SbtDeskTran-update-extract-")
     target_exe = os.path.join(target_dir, APP_EXE_NAME)
 
-    expected_zip = download_path.lower().endswith(".zip")
-    if expected_zip and not zipfile.is_zipfile(download_path):
-        raise ValueError("Downloaded update is not a valid zip archive")
+    try:
+        expected_zip = download_path.lower().endswith(".zip")
+        if expected_zip and not zipfile.is_zipfile(download_path):
+            raise ValueError("Downloaded update is not a valid zip archive")
 
-    if zipfile.is_zipfile(download_path):
-        with zipfile.ZipFile(download_path) as archive:
-            exe_names = [
-                name for name in archive.namelist()
-                if os.path.basename(name).lower() == APP_EXE_NAME.lower()
-            ]
-            if not exe_names:
-                raise ValueError(f"{APP_EXE_NAME} was not found in update archive")
-            with archive.open(exe_names[0]) as src, open(target_exe, "wb") as dst:
-                shutil.copyfileobj(src, dst)
-    else:
-        shutil.copy2(download_path, target_exe)
+        if zipfile.is_zipfile(download_path):
+            with zipfile.ZipFile(download_path) as archive:
+                exe_names = [
+                    name for name in archive.namelist()
+                    if os.path.basename(name).lower() == APP_EXE_NAME.lower()
+                ]
+                if not exe_names:
+                    raise ValueError(f"{APP_EXE_NAME} was not found in update archive")
+                with archive.open(exe_names[0]) as src, open(target_exe, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        else:
+            shutil.copy2(download_path, target_exe)
 
-    _validate_windows_exe(target_exe)
-    return target_exe, target_dir
+        _validate_windows_exe(target_exe)
+        return target_exe, target_dir
+    except Exception:
+        _cleanup_path(target_dir)
+        raise
 
 
 def _validate_windows_exe(path: str) -> None:
@@ -231,6 +247,15 @@ def _write_helper_batch(
         cleanup_lines += f'\nif exist "{download_path}" del /f /q "{download_path}" >nul 2>&1'
     if extract_dir:
         cleanup_lines += f'\nif exist "{extract_dir}" rd /s /q "{extract_dir}" >nul 2>&1'
+    cleanup_lines += r'''
+if defined TEMP (
+    del /f /q "%TEMP%\SbtDeskTran-update-*" >nul 2>&1
+    for /d %%D in ("%TEMP%\SbtDeskTran-update-extract-*") do rd /s /q "%%D" >nul 2>&1
+)
+if defined TMP (
+    del /f /q "%TMP%\SbtDeskTran-update-*" >nul 2>&1
+    for /d %%D in ("%TMP%\SbtDeskTran-update-extract-*") do rd /s /q "%%D" >nul 2>&1
+)'''
     script = f"""@echo off
 setlocal EnableDelayedExpansion
 set "NEW_EXE={new_exe}"
@@ -254,7 +279,10 @@ if exist "%BACKUP_EXE%" del /f /q "%BACKUP_EXE%" >nul 2>&1
 if exist "%CURRENT_EXE%" (
     move /y "%CURRENT_EXE%" "%BACKUP_EXE%" >nul 2>&1
     if errorlevel 1 (
-        if !RETRY_COUNT! GEQ 30 exit /b 1
+        if !RETRY_COUNT! GEQ 30 (
+            {cleanup_lines}
+            exit /b 1
+        )
         timeout /t 1 /nobreak >nul
         goto replace_app
     )
@@ -262,7 +290,10 @@ if exist "%CURRENT_EXE%" (
 copy /y "%NEW_EXE%" "%CURRENT_EXE%" >nul 2>&1
 if errorlevel 1 (
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul 2>&1
-    if !RETRY_COUNT! GEQ 30 exit /b 1
+    if !RETRY_COUNT! GEQ 30 (
+        {cleanup_lines}
+        exit /b 1
+    )
     timeout /t 1 /nobreak >nul
     goto replace_app
 )
@@ -271,6 +302,7 @@ for %%A in ("%CURRENT_EXE%") do set "CUR_SIZE=%%~zA"
 if not "!NEW_SIZE!"=="!CUR_SIZE!" (
     if exist "%CURRENT_EXE%" del /f /q "%CURRENT_EXE%" >nul 2>&1
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul
+    {cleanup_lines}
     exit /b 1
 )
 {cleanup_lines}
@@ -292,9 +324,14 @@ def download_and_stage_update(info: UpdateInfo, restart: bool = True, settings: 
     if os.path.normcase(os.path.abspath(sys.executable)) != os.path.normcase(os.path.abspath(current_exe)):
         current_exe = sys.executable
 
-    download_path = _download_to_temp(info.download_url, settings=settings)
-    new_exe, extract_dir = _extract_exe(download_path)
-    return _write_helper_batch(new_exe, current_exe, restart, download_path, extract_dir)
+    download_path = ""
+    try:
+        download_path = _download_to_temp(info.download_url, settings=settings)
+        new_exe, extract_dir = _extract_exe(download_path)
+        return _write_helper_batch(new_exe, current_exe, restart, download_path, extract_dir)
+    except Exception:
+        _cleanup_path(download_path)
+        raise
 
 
 def run_update_helper(helper_bat: str) -> None:

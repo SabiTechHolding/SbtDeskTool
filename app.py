@@ -4,7 +4,7 @@ Layout: TopBar (tabs left, modes right) -> LangBar (tran only) -> Content -> Sta
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
-import threading, json, os, sys, ctypes, difflib
+import threading, json, os, sys, ctypes, difflib, re
 
 from translator_engine import (
     LANGUAGES, LANG_CODE_TO_NAME, get_engine, ENGINES, TranslationError
@@ -89,6 +89,211 @@ class FilterableCombobox(ttk.Combobox):
     def set_all(self, values):
         self._all = list(values)
         self["values"] = self._all
+
+
+class TextFindBar(tk.Frame):
+    """Find bar for one or more Text widgets."""
+
+    def __init__(self, parent, theme, settings, save_fn, prefix, **kwargs):
+        super().__init__(parent, bg=theme["bg3"], height=30, **kwargs)
+        self.theme = theme
+        self.settings = settings
+        self.save_fn = save_fn
+        self.prefix = prefix
+        self.widgets = []
+        self.matches = []
+        self.match_index = -1
+        self._timer = None
+
+        self.find_var = tk.StringVar()
+        self.find_case_var = tk.BooleanVar(
+            value=settings.get(f"{prefix}_find_case", False))
+        self.find_word_var = tk.BooleanVar(
+            value=settings.get(f"{prefix}_find_word", False))
+        self.find_regex_var = tk.BooleanVar(
+            value=settings.get(f"{prefix}_find_regex", False))
+
+        self.pack_propagate(False)
+        self._build()
+
+    def _build(self):
+        t = self.theme
+        self.find_entry = tk.Entry(self, textvariable=self.find_var,
+            bg=t["bg"], fg=t["fg"], insertbackground=t["fg"],
+            relief="flat", bd=1, highlightthickness=1,
+            highlightbackground=t["border"], highlightcolor=t["accent"],
+            font=t["font_ui"])
+        self.find_entry.pack(side="left", fill="x", expand=True, padx=(6, 4), pady=4)
+        self.find_entry.bind("<KeyRelease>", self._schedule_find, add="+")
+        self.find_entry.bind("<Return>", lambda e: self.find_next(), add="+")
+        self.find_entry.bind("<Shift-Return>", lambda e: self.find_prev(), add="+")
+        self.find_entry.bind("<Escape>", lambda e: self.leave_find(), add="+")
+
+        self.find_status = tk.Label(self, text="", bg=t["bg3"], fg=t["fg2"],
+            font=t["font_small"], width=16, anchor="w")
+        self.find_status.pack(side="left", padx=2)
+
+        for text, var in (("Aa", self.find_case_var),
+                          ("ab", self.find_word_var),
+                          (".*", self.find_regex_var)):
+            tk.Checkbutton(self, text=text, variable=var,
+                command=self._toggle_find_option,
+                bg=t["bg3"], fg=t["fg2"], selectcolor=t["bg3"],
+                activebackground=t["bg3"], activeforeground=t["fg"],
+                font=t["font_small"], padx=2).pack(side="left")
+
+        FlatButton(self, text="Prev", theme=t, command=self.find_prev).pack(side="left", padx=2)
+        FlatButton(self, text="Next", theme=t, command=self.find_next).pack(side="left", padx=2)
+        FlatButton(self, text="X", theme=t, command=self.clear_find).pack(side="left", padx=(2, 6))
+
+    def set_widgets(self, widgets):
+        self.widgets = [(name, widget) for name, widget in widgets if widget]
+        for _, widget in self.widgets:
+            self._configure_tags(widget)
+            widget.bind("<Control-f>", lambda e: self.focus_find(), add="+")
+            widget.bind("<Control-F>", lambda e: self.focus_find(), add="+")
+            widget.bind("<KeyRelease>", self._schedule_find, add="+")
+        self.run_find()
+
+    def _configure_tags(self, widget):
+        t = self.theme
+        search_bg = "#5c4b1f" if t.get("name") == "dark" else "#ffe58a"
+        current_bg = "#8a6f22" if t.get("name") == "dark" else "#ffbd2e"
+        widget.tag_configure("app_search", background=search_bg, foreground=t["fg"])
+        widget.tag_configure("app_search_current", background=current_bg, foreground="#ffffff")
+
+    def _toggle_find_option(self):
+        self.settings[f"{self.prefix}_find_case"] = self.find_case_var.get()
+        self.settings[f"{self.prefix}_find_word"] = self.find_word_var.get()
+        self.settings[f"{self.prefix}_find_regex"] = self.find_regex_var.get()
+        self.save_fn(self.settings)
+        self.run_find()
+
+    def focus_find(self):
+        self.find_entry.focus_set()
+        self.find_entry.selection_range(0, "end")
+        self.run_find()
+        return "break"
+
+    def leave_find(self):
+        if self.matches and 0 <= self.match_index < len(self.matches):
+            _, widget, start, _ = self.matches[self.match_index]
+            try:
+                widget.focus_set()
+                widget.mark_set("insert", start)
+            except Exception:
+                pass
+        return "break"
+
+    def clear_find(self):
+        self.find_var.set("")
+        self.run_find()
+        self.leave_find()
+        return "break"
+
+    def _schedule_find(self, _=None):
+        if self._timer:
+            self.after_cancel(self._timer)
+        self._timer = self.after(120, self.run_find)
+
+    def _compiled_pattern(self):
+        query = self.find_var.get()
+        if not query:
+            return None, None
+        flags = 0 if self.find_case_var.get() else re.IGNORECASE
+        try:
+            pattern = query if self.find_regex_var.get() else re.escape(query)
+            if self.find_word_var.get():
+                pattern = rf"(?<!\w)(?:{pattern})(?!\w)"
+            return re.compile(pattern, flags), None
+        except re.error as exc:
+            return None, str(exc)
+
+    def run_find(self, keep_index=False):
+        if self._timer:
+            self.after_cancel(self._timer)
+            self._timer = None
+        old_current = None
+        if keep_index and 0 <= self.match_index < len(self.matches):
+            old_current = self.matches[self.match_index]
+        for _, widget in self.widgets:
+            widget.tag_remove("app_search", "1.0", "end")
+            widget.tag_remove("app_search_current", "1.0", "end")
+        self.matches = []
+        self.match_index = -1
+
+        pattern, error = self._compiled_pattern()
+        if error:
+            self.find_status.config(text="Bad regex")
+            return
+        if pattern is None:
+            self.find_status.config(text="")
+            return
+
+        for name, widget in self.widgets:
+            try:
+                text = widget.get("1.0", "end-1c")
+            except Exception:
+                continue
+            for match in pattern.finditer(text):
+                if match.end() == match.start():
+                    continue
+                start = widget.index(f"1.0 + {match.start()} chars")
+                end = widget.index(f"1.0 + {match.end()} chars")
+                self.matches.append((name, widget, start, end))
+                widget.tag_add("app_search", start, end)
+
+        if self.matches:
+            self.match_index = self.matches.index(old_current) if old_current in self.matches else 0
+            self._mark_current()
+        else:
+            self.find_status.config(text="No results")
+
+    def _mark_current(self):
+        for _, widget in self.widgets:
+            widget.tag_remove("app_search_current", "1.0", "end")
+        if not self.matches:
+            self.find_status.config(text="No results" if self.find_var.get() else "")
+            return
+        name, widget, start, end = self.matches[self.match_index]
+        widget.tag_add("app_search_current", start, end)
+        for _, w in self.widgets:
+            w.tag_raise("app_search")
+            w.tag_raise("app_search_current")
+            w.tag_raise("sel")
+        label = f"{self.match_index + 1}/{len(self.matches)}"
+        self.find_status.config(text=f"{label} {name}" if len(self.widgets) > 1 else label)
+
+    def _goto_match(self):
+        if not self.matches:
+            return "break"
+        _, widget, start, end = self.matches[self.match_index]
+        try:
+            widget.focus_set()
+            widget.mark_set("insert", start)
+            widget.tag_remove("sel", "1.0", "end")
+            widget.tag_add("sel", start, end)
+            widget.see(start)
+        except Exception:
+            pass
+        self._mark_current()
+        return "break"
+
+    def find_next(self):
+        if not self.matches:
+            self.run_find()
+        if self.matches:
+            self.match_index = (self.match_index + 1) % len(self.matches)
+            return self._goto_match()
+        return "break"
+
+    def find_prev(self):
+        if not self.matches:
+            self.run_find()
+        if self.matches:
+            self.match_index = (self.match_index - 1) % len(self.matches)
+            return self._goto_match()
+        return "break"
 
 # ─────────────────────────────────────────────
 # Main App
@@ -738,6 +943,8 @@ class SbtDeskTranApp:
     def _build_tran_tab(self):
         t = self.theme
         parent = self._tab_frames.get("tran", self.content)
+        self.tran_find = TextFindBar(parent, t, self.settings, self.save_fn, "tran")
+        self.tran_find.pack(fill="x")
 
         # ── Split panes ──────────────────────────────────────────────────────
         orient = tk.HORIZONTAL if self._layout == "horizontal" else tk.VERTICAL
@@ -824,6 +1031,10 @@ class SbtDeskTranApp:
             self.dest_text.config(state="normal")
             self.dest_text.insert("1.0", self._dst_cache)
             self.dest_text.config(state="disabled")
+        self.tran_find.set_widgets((
+            ("Source", self.src_text),
+            ("Translated", self.dest_text),
+        ))
         self._status_widget = self.src_text
         self._status_panel = "Source"
         self._update_status_metrics()
@@ -1049,6 +1260,8 @@ class SbtDeskTranApp:
     def _build_note_tab(self):
         t = self.theme
         parent = self._tab_frames.get("note", self.content)
+        self.note_find = TextFindBar(parent, t, self.settings, self.save_fn, "note")
+        self.note_find.pack(fill="x")
         outer = tk.PanedWindow(parent, orient=tk.HORIZONTAL,
             bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         outer.pack(fill="both", expand=True)
@@ -1095,6 +1308,7 @@ class SbtDeskTranApp:
         self.note_body.bind("<Control-MouseWheel>", self._on_zoom)
         self.note_body.bind("<KeyRelease>",          self._note_debounce)
         self._bind_status_metrics(self.note_body, "Note")
+        self.note_find.set_widgets((("Note", self.note_body),))
 
         # Sidebar — bên phải, width vừa đủ 3 nút
         saved_sb_w = self.settings.get("note_sidebar_width", 130)
@@ -1248,6 +1462,8 @@ class SbtDeskTranApp:
             self.note_title.set("")
             self.note_body.delete("1.0","end")
             self._set_note_dirty(False)
+            if hasattr(self, "note_find"):
+                self.note_find.run_find()
             return
         self._note_idx = idx
         n = self._notes[idx]
@@ -1255,6 +1471,8 @@ class SbtDeskTranApp:
         self.note_body.delete("1.0","end")
         self.note_body.insert("1.0", n.get("body",""))
         self._set_note_dirty(False)
+        if hasattr(self, "note_find"):
+            self.note_find.run_find()
 
     def _note_save(self):
         self._cancel_note_timer()
@@ -1558,6 +1776,8 @@ class SbtDeskTranApp:
             self.dest_text.config(state="disabled")
             self._dst_snapshot = None
             self._update_status_metrics()
+            if hasattr(self, "tran_find"):
+                self.tran_find.run_find(keep_index=True)
         except Exception: pass
 
     def _copy_text(self, widget):
@@ -1578,6 +1798,8 @@ class SbtDeskTranApp:
             self._src_snapshot = self._dst_snapshot = None
             self._set_status("Cleared")
             self._update_status_metrics()
+            if hasattr(self, "tran_find"):
+                self.tran_find.run_find()
         except Exception: pass
 
     def _swap_langs(self):

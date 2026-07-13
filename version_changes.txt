@@ -5,6 +5,17 @@ Keep release/change details here instead of putting them in the release body.
 Last released: v2026.07.10.32
 
 -----------------------------------------------------------------
+v2026.07.14 - Find in Translate/Notes and update temp cleanup
+-----------------------------------------------------------------
+
+App:
+- Added the Diff-style find bar to Translate and Notes, including Ctrl+F,
+  previous/next navigation, case-sensitive, whole-word, and regex options.
+- Translate find searches both Source and Translated panels.
+- Notes find searches the current note body and refreshes when switching notes.
+- Cleaned up the update temp files.
+
+-----------------------------------------------------------------
 v2026.07.10 - Faster translation, network fallback, and auto-update fixes
 -----------------------------------------------------------------
 
