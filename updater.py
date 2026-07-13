@@ -6,6 +6,7 @@ asset, extracts only SbtDeskTran.exe, and replaces the running executable
 through a helper batch file after the app exits.
 """
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -29,6 +30,7 @@ LEGACY_UPDATE_ARCHIVE_NAME = "SbtDeskTran.zip"
 VERSION_CHANGES_NAME = "version_changes.txt"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/SabiTechHolding/SbtDeskTran/releases/latest"
 ENV_RELEASE_API_URL = "SBTDESKTRAN_RELEASE_API_URL"
+PYINSTALLER_COOKIE = b"MEI\014\013\012\013\016"
 
 
 @dataclass
@@ -219,10 +221,26 @@ def _validate_windows_exe(path: str) -> None:
     try:
         with open(path, "rb") as f:
             header = f.read(2)
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 1024 * 1024))
+            tail = f.read()
     except Exception as exc:
         raise ValueError(f"Could not read downloaded executable: {exc}") from exc
     if header != b"MZ":
         raise ValueError("Downloaded update does not look like a valid Windows executable")
+    if size < 1024 * 1024:
+        raise ValueError("Downloaded executable is unexpectedly small")
+    if PYINSTALLER_COOKIE not in tail:
+        raise ValueError("Downloaded executable does not contain a valid PyInstaller archive")
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest().upper()
 
 
 def _write_helper_batch(
@@ -231,13 +249,18 @@ def _write_helper_batch(
 ) -> str:
     bat_path = os.path.join(tempfile.gettempdir(), "SbtDeskTran-apply-update.bat")
     backup_exe = current_exe + ".bak"
+    new_exe_sha256 = _file_sha256(new_exe)
     restart_block = """if defined APP_DIR (
-    pushd "%APP_DIR%" >nul 2>&1
-    if errorlevel 1 (
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:CURRENT_EXE -WorkingDirectory $env:APP_DIR"
+    if "!APP_DIR:~0,2!"=="\\\\" (
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$wd=$env:APP_DIR; Set-Location -LiteralPath $wd; Start-Process -FilePath $env:CURRENT_EXE -WorkingDirectory $wd"
     ) else (
-        start "" "%APP_FILE%"
-        popd >nul 2>&1
+        pushd "%APP_DIR%" >nul 2>&1
+        if errorlevel 1 (
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:CURRENT_EXE -WorkingDirectory $env:APP_DIR"
+        ) else (
+            start "" "%APP_FILE%"
+            popd >nul 2>&1
+        )
     )
 ) else (
     start "" "%CURRENT_EXE%"
@@ -261,6 +284,7 @@ setlocal EnableDelayedExpansion
 set "NEW_EXE={new_exe}"
 set "CURRENT_EXE={current_exe}"
 set "BACKUP_EXE={backup_exe}"
+set "NEW_SHA256={new_exe_sha256}"
 set "PID={os.getpid()}"
 set "APP_DIR="
 set "APP_FILE="
@@ -287,7 +311,7 @@ if exist "%CURRENT_EXE%" (
         goto replace_app
     )
 )
-copy /y "%NEW_EXE%" "%CURRENT_EXE%" >nul 2>&1
+copy /b /y "%NEW_EXE%" "%CURRENT_EXE%" >nul 2>&1
 if errorlevel 1 (
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul 2>&1
     if !RETRY_COUNT! GEQ 30 (
@@ -302,8 +326,23 @@ for %%A in ("%CURRENT_EXE%") do set "CUR_SIZE=%%~zA"
 if not "!NEW_SIZE!"=="!CUR_SIZE!" (
     if exist "%CURRENT_EXE%" del /f /q "%CURRENT_EXE%" >nul 2>&1
     if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul
-    {cleanup_lines}
-    exit /b 1
+    if !RETRY_COUNT! GEQ 30 (
+        {cleanup_lines}
+        exit /b 1
+    )
+    timeout /t 1 /nobreak >nul
+    goto replace_app
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if ((Get-FileHash -LiteralPath $env:CURRENT_EXE -Algorithm SHA256).Hash -ne $env:NEW_SHA256) {{ exit 1 }}"
+if errorlevel 1 (
+    if exist "%CURRENT_EXE%" del /f /q "%CURRENT_EXE%" >nul 2>&1
+    if exist "%BACKUP_EXE%" move /y "%BACKUP_EXE%" "%CURRENT_EXE%" >nul 2>&1
+    if !RETRY_COUNT! GEQ 30 (
+        {cleanup_lines}
+        exit /b 1
+    )
+    timeout /t 1 /nobreak >nul
+    goto replace_app
 )
 {cleanup_lines}
 timeout /t 3 /nobreak >nul
