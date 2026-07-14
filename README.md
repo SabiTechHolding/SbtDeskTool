@@ -51,9 +51,13 @@ current app version. If the release is newer, the app downloads the release
 asset named like `SbtDeskTran-2026.07.07.8.zip`, or a direct `SbtDeskTran.exe`.
 
 When a newer version is found, the app downloads the package, extracts only
-`SbtDeskTran.exe`, closes, replaces the exe in the running app folder, and
-starts again. Version change text is read from `version_changes.txt` instead
-of being stored in a separate update file.
+`SbtDeskTran.exe`, verifies the PyInstaller archive and SHA-256, stages the
+new executable inside the app folder, cleans temporary update files, then
+shows Restart. Restart renames the staged executable into place, clears old
+PyInstaller environment variables so the new app gets its own runtime
+directory, and starts the app from its own folder. UNC app folders fall back to
+PowerShell when CMD cannot enter them. Version change text is read from
+`version_changes.txt` instead of being stored in a separate update file.
 
 For CI/CD releases, stamp the release tag before PyInstaller builds, then
 create release assets after `dist\SbtDeskTran.exe` exists:
@@ -87,16 +91,17 @@ release tag. For GitHub Actions, set `fetch-depth: 0` on `actions/checkout`.
 | --- | --- |
 | Translation | Google Translate with auto language detection and corporate proxy/PAC fallback |
 | Translate layout | Horizontal or vertical split; horizontal scrollbars appear when Wrap is off |
+| Search / Find | Diff-style find bar in Translate and Notes with previous/next, case-sensitive, whole-word, and regex options; Translate searches Source and Translated, Notes searches the current note body |
 | Diff mode | Resizable top/bottom panes, synced left/right pane width, line and word-level highlighting |
 | Diff scrolling | Synced vertical scrolling and synced horizontal scrolling for left/right diff panes |
 | Notes | Local notes with optional Auto Save, saved/unsaved indicator, empty note list support, delete confirmation |
 | Status bar | Per-panel total chars, current line/character, and selected character count |
 | Font zoom | `Ctrl+MouseWheel` zoom, remembered separately for Translate, Diff, and Notes |
 | Window effects | Solid, Blur, Frosted, Transparent, Dim, Ghost, and Clear modes |
-| Compact mode | Small minimal window for quick translation |
+| Compact mode | Small minimal window for quick translation; search/find controls are hidden |
 | Always on top | Pin the window above other windows |
 | Themes | Dark and Light themes |
-| Shortcuts | `Ctrl+Enter` translates immediately; `Ctrl+MouseWheel` changes font size |
+| Shortcuts | `Ctrl+F` focuses find, `Ctrl+Enter` translates immediately, `Ctrl+MouseWheel` changes font size |
 
 ## Runtime Data
 
