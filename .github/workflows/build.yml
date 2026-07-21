@@ -295,7 +295,7 @@ jobs:
         run: |
           node scripts/release-notes.mjs > release-notes.md
           gh release edit "${{ needs.release-metadata.outputs.tag }}" \
-            --title "SbtDeskTool ${{ needs.release-metadata.outputs.tag }}" \
+            --title "${{ needs.release-metadata.outputs.tag }}" \
             --notes-file release-notes.md \
             --draft=false \
             --latest

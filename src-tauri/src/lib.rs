@@ -7,7 +7,7 @@ mod models;
 #[allow(unused_imports)]
 use commands::{
     diff::compute_diff,
-    network::get_network_strategy,
+    network::{get_network_strategy, resolve_system_proxy},
     notes::{delete_note, flush_notes, list_notes, save_note},
     settings::{get_settings, save_setting, save_settings_flush, SettingsState},
     translate::{translate, translate_units},
@@ -262,6 +262,7 @@ pub fn run() {
             restart_app,
             exit_app,
             get_network_strategy,
+            resolve_system_proxy,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Resized(size) => {

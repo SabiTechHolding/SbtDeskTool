@@ -9,3 +9,8 @@ pub async fn get_network_strategy(state: State<'_, SettingsState>) -> Result<u8,
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u8)
 }
+
+#[tauri::command]
+pub async fn resolve_system_proxy(url: String) -> Result<Option<String>, String> {
+    crate::engine::network::resolve_system_proxy(&url).await
+}

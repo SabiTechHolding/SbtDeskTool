@@ -1,5 +1,191 @@
 use std::time::Duration;
 
+fn normalize_proxy(proxy_list: &str, url: &str) -> Option<String> {
+    let preferred_scheme = if url.to_ascii_lowercase().starts_with("https://") {
+        "https"
+    } else {
+        "http"
+    };
+    let entries: Vec<&str> = proxy_list
+        .split(';')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .collect();
+
+    let selected = entries
+        .iter()
+        .find_map(|entry| {
+            let (scheme, value) = entry.split_once('=')?;
+            scheme
+                .trim()
+                .eq_ignore_ascii_case(preferred_scheme)
+                .then_some(value.trim())
+        })
+        .or_else(|| {
+            entries.iter().find_map(|entry| {
+                let (scheme, value) = entry.split_once('=')?;
+                scheme
+                    .trim()
+                    .eq_ignore_ascii_case("http")
+                    .then_some(value.trim())
+            })
+        })
+        .or_else(|| entries.first().copied())?
+        .trim();
+
+    let selected = selected
+        .strip_prefix("PROXY ")
+        .or_else(|| selected.strip_prefix("proxy "))
+        .unwrap_or(selected)
+        .trim();
+    if selected.is_empty() || selected.eq_ignore_ascii_case("DIRECT") {
+        return None;
+    }
+    if selected.contains("://") {
+        Some(selected.to_owned())
+    } else {
+        Some(format!("http://{selected}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_system_proxy_blocking(url: &str) -> Result<Option<String>, String> {
+    use std::{ffi::c_void, iter, os::windows::ffi::OsStrExt, ptr, slice};
+    use windows_sys::Win32::{
+        Foundation::GlobalFree,
+        Networking::WinHttp::{
+            WinHttpCloseHandle, WinHttpGetIEProxyConfigForCurrentUser, WinHttpGetProxyForUrl,
+            WinHttpOpen, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_AUTOPROXY_AUTO_DETECT,
+            WINHTTP_AUTOPROXY_CONFIG_URL, WINHTTP_AUTOPROXY_OPTIONS, WINHTTP_AUTO_DETECT_TYPE_DHCP,
+            WINHTTP_AUTO_DETECT_TYPE_DNS_A, WINHTTP_CURRENT_USER_IE_PROXY_CONFIG,
+            WINHTTP_PROXY_INFO,
+        },
+    };
+
+    struct InternetHandle(*mut c_void);
+    impl Drop for InternetHandle {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // SAFETY: the handle was returned by WinHTTP and is closed once here.
+                unsafe { WinHttpCloseHandle(self.0) };
+            }
+        }
+    }
+
+    unsafe fn wide_string(value: *const u16) -> Option<String> {
+        if value.is_null() {
+            return None;
+        }
+        let mut length = 0;
+        // SAFETY: WinHTTP owns a valid null-terminated UTF-16 allocation here.
+        while unsafe { *value.add(length) } != 0 {
+            length += 1;
+        }
+        Some(String::from_utf16_lossy(unsafe {
+            slice::from_raw_parts(value, length)
+        }))
+    }
+
+    unsafe fn free_global(value: *mut u16) {
+        if !value.is_null() {
+            // SAFETY: WinHTTP documents these strings as GlobalFree allocations.
+            unsafe { GlobalFree(value.cast()) };
+        }
+    }
+
+    fn wide(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(iter::once(0))
+            .collect()
+    }
+
+    let mut config: WINHTTP_CURRENT_USER_IE_PROXY_CONFIG = unsafe { std::mem::zeroed() };
+    // SAFETY: config is a writable structure of the required type.
+    if unsafe { WinHttpGetIEProxyConfigForCurrentUser(&mut config) } == 0 {
+        return Err(format!(
+            "Unable to read current-user proxy settings: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    let auto_config_url = unsafe { wide_string(config.lpszAutoConfigUrl) };
+    let static_proxy = unsafe { wide_string(config.lpszProxy) };
+    let has_auto_detect = config.fAutoDetect != 0;
+
+    // The configuration strings remain valid only until they are freed below.
+    unsafe {
+        free_global(config.lpszAutoConfigUrl);
+        free_global(config.lpszProxy);
+        free_global(config.lpszProxyBypass);
+    }
+
+    if auto_config_url.is_none() && !has_auto_detect {
+        return Ok(static_proxy.and_then(|proxy| normalize_proxy(&proxy, url)));
+    }
+
+    let agent = wide("SbtDeskTool Updater");
+    // SAFETY: the agent is a valid null-terminated UTF-16 string.
+    let session = InternetHandle(unsafe {
+        WinHttpOpen(
+            agent.as_ptr(),
+            WINHTTP_ACCESS_TYPE_NO_PROXY,
+            ptr::null(),
+            ptr::null(),
+            0,
+        )
+    });
+    if session.0.is_null() {
+        return Ok(static_proxy.and_then(|proxy| normalize_proxy(&proxy, url)));
+    }
+
+    let auto_config_wide = auto_config_url.as_deref().map(wide);
+    let mut options: WINHTTP_AUTOPROXY_OPTIONS = unsafe { std::mem::zeroed() };
+    if let Some(value) = auto_config_wide.as_ref() {
+        options.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
+        options.lpszAutoConfigUrl = value.as_ptr();
+    } else {
+        options.dwFlags = WINHTTP_AUTOPROXY_AUTO_DETECT;
+        options.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
+    }
+    options.fAutoLogonIfChallenged = 1;
+
+    let url_wide = wide(url);
+    let mut proxy_info: WINHTTP_PROXY_INFO = unsafe { std::mem::zeroed() };
+    // SAFETY: session and all input/output buffers remain live for the call.
+    let resolved = unsafe {
+        WinHttpGetProxyForUrl(session.0, url_wide.as_ptr(), &mut options, &mut proxy_info)
+    } != 0;
+    let pac_proxy = resolved
+        .then(|| unsafe { wide_string(proxy_info.lpszProxy) })
+        .flatten();
+    unsafe {
+        free_global(proxy_info.lpszProxy);
+        free_global(proxy_info.lpszProxyBypass);
+    }
+
+    if resolved {
+        // A successful PAC result with no proxy means DIRECT for this URL. Do not
+        // incorrectly fall back to the static proxy in that case.
+        return Ok(pac_proxy.and_then(|proxy| normalize_proxy(&proxy, url)));
+    }
+
+    Ok(static_proxy.and_then(|proxy| normalize_proxy(&proxy, url)))
+}
+
+#[cfg(target_os = "windows")]
+pub async fn resolve_system_proxy(url: &str) -> Result<Option<String>, String> {
+    let url = url.to_owned();
+    tokio::task::spawn_blocking(move || resolve_system_proxy_blocking(&url))
+        .await
+        .map_err(|error| format!("Windows proxy/PAC task error: {error}"))?
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn resolve_system_proxy(_url: &str) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
 async fn request_reqwest(
     url: &str,
     direct: bool,
@@ -217,6 +403,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn selects_proxy_for_update_url() {
+        assert_eq!(
+            normalize_proxy(
+                "http=proxy.local:8080;https=secure.local:8443",
+                "https://example.com"
+            ),
+            Some("http://secure.local:8443".into())
+        );
+        assert_eq!(
+            normalize_proxy("PROXY proxy.local:8080", "https://example.com"),
+            Some("http://proxy.local:8080".into())
+        );
+        assert_eq!(normalize_proxy("DIRECT", "https://example.com"), None);
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn wininet_reads_a_response_with_current_user_network_settings() {
@@ -241,5 +443,18 @@ mod tests {
             .expect("request through WinINet");
         server.join().expect("join test server");
         assert_eq!(body, "proxy");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn resolves_current_user_proxy_for_update_endpoint() {
+        let resolved = resolve_system_proxy_blocking(
+            "https://github.com/SabiTechHolding/SbtDeskTool/releases/latest/download/latest.json",
+        );
+        println!("resolved updater proxy: {resolved:?}");
+        assert!(
+            resolved.is_ok(),
+            "proxy/PAC resolution failed: {resolved:?}"
+        );
     }
 }

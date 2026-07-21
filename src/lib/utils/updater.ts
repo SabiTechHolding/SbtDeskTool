@@ -11,6 +11,9 @@ export interface DialogRequest {
 
 export type ShowDialog = (request: DialogRequest) => Promise<boolean>;
 
+const UPDATE_ENDPOINT =
+  "https://github.com/SabiTechHolding/SbtDeskTool/releases/latest/download/latest.json";
+
 export async function checkForUpdates(
   force: boolean,
   onProgress?: (message: string) => void,
@@ -19,7 +22,13 @@ export async function checkForUpdates(
   try {
     onProgress?.("Checking...");
     const { check } = await import("@tauri-apps/plugin-updater");
-    const update = await check({ timeout: 15000 });
+    const proxy = await invoke<string | null>("resolve_system_proxy", {
+      url: UPDATE_ENDPOINT,
+    }).catch(() => null);
+    const update = await check({
+      timeout: 15000,
+      ...(proxy ? { proxy } : {}),
+    });
     if (!update) {
       if (force) await showDialog?.({ title: "Check Update", message: "You are up to date." });
       return;
