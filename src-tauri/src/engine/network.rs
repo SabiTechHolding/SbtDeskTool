@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+#[cfg_attr(not(any(test, target_os = "windows")), allow(dead_code))]
 fn normalize_proxy(proxy_list: &str, url: &str) -> Option<String> {
     let preferred_scheme = if url.to_ascii_lowercase().starts_with("https://") {
         "https"
