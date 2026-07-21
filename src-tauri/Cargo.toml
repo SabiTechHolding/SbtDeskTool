@@ -1,6 +1,6 @@
 [package]
 name = "sbt-desk-tool"
-version = "1.26.7-21.40"
+version = "1.26.7-21.42"
 description = "SbtDeskTool - Desktop productivity tools"
 authors = ["SabiTechHolding"]
 license = ""
