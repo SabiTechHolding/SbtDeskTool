@@ -216,9 +216,28 @@ pub(crate) fn save_settings_to_disk(map: &serde_json::Map<String, Value>) {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn set_windows_app_user_model_id() {
+    use std::{iter, os::windows::ffi::OsStrExt};
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    let app_id: Vec<u16> = std::ffi::OsStr::new("com.sabitech.sbtdesktool")
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    // SAFETY: app_id is a valid null-terminated UTF-16 string for this call.
+    let result = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+    if result < 0 {
+        eprintln!("Unable to set Windows AppUserModelID: HRESULT {result:#x}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let settings = load_settings_from_disk();
+
+    #[cfg(target_os = "windows")]
+    set_windows_app_user_model_id();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -276,6 +295,14 @@ pub fn run() {
                 }
             }
 
+            #[cfg(target_os = "windows")]
+            if let (Some(window), Some(icon)) =
+                (app.get_webview_window("main"), app.default_window_icon())
+            {
+                window.set_icon(icon.clone())?;
+                window.set_skip_taskbar(false)?;
+            }
+
             let tray_result = (|| -> tauri::Result<()> {
                 let show_item =
                     tauri::menu::MenuItemBuilder::with_id("show", "Show/Hide").build(app)?;
@@ -288,6 +315,7 @@ pub fn run() {
                 tauri::tray::TrayIconBuilder::new()
                     .icon(app.default_window_icon().unwrap().clone())
                     .menu(&menu)
+                    .show_menu_on_left_click(true)
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "show" => {
                             if let Some(window) = app.get_webview_window("main") {
@@ -308,23 +336,6 @@ pub fn run() {
                             }
                         }
                         _ => {}
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        if let tauri::tray::TrayIconEvent::Click {
-                            button: tauri::tray::MouseButton::Left,
-                            button_state: tauri::tray::MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
-                            if let Some(window) = tray.app_handle().get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        }
                     })
                     .build(app)?;
                 Ok(())

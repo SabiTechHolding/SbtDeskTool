@@ -56,12 +56,17 @@ jobs:
     needs: verify
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
       display_version: ${{ steps.version.outputs.display_version }}
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -83,6 +88,32 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "display_version=$display_version" >> "$GITHUB_OUTPUT"
+
+      - name: Commit generated version to main
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git diff --quiet -- version.json package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json; then
+            echo "Version files are already up to date."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add version.json package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+            git commit -m "chore: update build version to ${RELEASE_TAG} [skip ci]"
+            git push origin HEAD:main
+          fi
+
+      - name: Require tagged version to be committed
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: git diff --exit-code -- version.json package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+
+      - name: Select versioned source commit
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   package:
     name: Package · ${{ matrix.platform }}
@@ -123,6 +154,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.release-metadata.outputs.source_sha }}
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -190,6 +222,14 @@ jobs:
           write_env APPLE_PASSWORD "$NOTARY_PASSWORD"
           write_env APPLE_TEAM_ID "$NOTARY_TEAM_ID"
 
+      - name: Read first changelog entry
+        id: release_notes
+        shell: pwsh
+        run: |
+          "body<<SBTDESKTOOL_NOTES" >> $env:GITHUB_OUTPUT
+          node scripts/release-notes.mjs >> $env:GITHUB_OUTPUT
+          "SBTDESKTOOL_NOTES" >> $env:GITHUB_OUTPUT
+
       - name: Build and upload signed packages to draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -198,25 +238,28 @@ jobs:
           args: ${{ matrix.target && format('--target {0} --bundles {1}', matrix.target, matrix.bundles) || format('--bundles {0}', matrix.bundles) }}
           tagName: ${{ needs.release-metadata.outputs.tag }}
           releaseName: SbtDeskTool ${{ needs.release-metadata.outputs.tag }}
-          releaseBody: Release validation is still running. See CHANGELOG.md for release notes.
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: ${{ runner.os == 'Windows' }}
           retryAttempts: 2
 
-      - name: Prepare Windows portable executable
+      - name: Prepare zipped Windows portable executable
         if: runner.os == 'Windows'
         id: portable
         shell: pwsh
         run: |
           $directory = "target/release/bundle/portable"
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
-          $name = "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-portable.exe"
-          $path = Join-Path $directory $name
-          Copy-Item -LiteralPath "target/release/sbt-desk-tool.exe" -Destination $path -Force
-          "path=$path" >> $env:GITHUB_OUTPUT
+          $baseName = "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-portable"
+          $exePath = Join-Path $directory "$baseName.exe"
+          $archivePath = Join-Path $directory "$baseName.zip"
+          Copy-Item -LiteralPath "target/release/sbt-desk-tool.exe" -Destination $exePath -Force
+          Compress-Archive -LiteralPath $exePath -DestinationPath $archivePath -Force
+          Remove-Item -LiteralPath $exePath -Force
+          "path=$archivePath" >> $env:GITHUB_OUTPUT
 
-      - name: Upload Windows portable executable to draft release
+      - name: Upload zipped Windows portable executable to draft release
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -242,12 +285,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Publish draft after every platform succeeds
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          node scripts/release-notes.mjs > release-notes.md
           gh release edit "${{ needs.release-metadata.outputs.tag }}" \
             --title "SbtDeskTool ${{ needs.release-metadata.outputs.tag }}" \
-            --notes-file CHANGELOG.md \
+            --notes-file release-notes.md \
             --draft=false \
             --latest

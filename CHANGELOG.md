@@ -1,6 +1,6 @@
 # SbtDeskTool changelog
 
-## v1.26.7.13-38 — Initial release
+## v1.26.7.13 — Initial release
 
 - Compare and edit text side by side with two diff algorithms, word-level details, whitespace controls and optional copy/revert actions.
 - Translate text automatically with language detection, language swap, network fallbacks and reuse of unchanged lines.

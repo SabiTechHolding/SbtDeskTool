@@ -16,6 +16,13 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
   throw new Error(`Invalid semantic version: ${input}`);
 }
 
+if (calendar && fs.existsSync("version.json")) {
+  const versionConfig = JSON.parse(fs.readFileSync("version.json", "utf8"));
+  versionConfig.major = Number(calendar[1]);
+  versionConfig.build = Number(calendar[5]);
+  fs.writeFileSync("version.json", `${JSON.stringify(versionConfig, null, 2)}\n`);
+}
+
 const packagePath = "package.json";
 const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 packageJson.version = version;

@@ -37,6 +37,15 @@ export function installFindTooltip(container: HTMLElement, controlSelector = FIN
       : null;
   }
 
+  function isFindInputTarget(element: Element | null) {
+    if (!element) return false;
+    if (element.closest(".find-widget textarea, .find-widget input")) return true;
+    // Depending on the exact pixel under the pointer, Monaco may report the
+    // inputbox wrapper instead of its nested input as the mouseover target.
+    const hoverOwner = element.closest<HTMLElement>('.find-widget [custom-hover="true"]');
+    return Boolean(hoverOwner?.querySelector("textarea, input"));
+  }
+
   function showTooltip(control: HTMLElement) {
     const label = control.getAttribute("aria-label")?.trim();
     if (!label) return;
@@ -91,7 +100,10 @@ export function installFindTooltip(container: HTMLElement, controlSelector = FIN
     // Monaco attaches managed-hover metadata to the find input wrapper too.
     // A text caret does not need a tooltip; entering the input must also clear
     // a tooltip left behind by the adjacent option buttons.
-    if (eventElement?.closest(".find-widget textarea, .find-widget input")) {
+    if (isFindInputTarget(eventElement)) {
+      // Prevent Monaco's managed-hover listener from opening its own upward
+      // tooltip after the body-level tooltip has been cleared.
+      event.stopPropagation();
       removeTooltip();
       return;
     }
@@ -110,6 +122,12 @@ export function installFindTooltip(container: HTMLElement, controlSelector = FIN
   }
 
   function handleFocus(event: FocusEvent) {
+    const eventElement = event.target instanceof Element ? event.target : null;
+    if (isFindInputTarget(eventElement)) {
+      event.stopPropagation();
+      removeTooltip();
+      return;
+    }
     const control = findControl(event.target);
     if (!control || !container.contains(control)) return;
     event.stopPropagation();

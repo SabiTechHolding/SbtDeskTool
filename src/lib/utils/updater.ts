@@ -41,8 +41,14 @@ export async function checkForUpdates(
       else onProgress?.("Installing...");
     });
     await invoke("restart_app");
-  } catch (error) {
-    if (force) await showDialog?.({ title: "Update Error", message: `Cannot update: ${error}`, tone: "error" });
+  } catch {
+    if (force) {
+      await showDialog?.({
+        title: "Check Update",
+        message: "Unable to check for updates. Please try again later.",
+        tone: "error",
+      });
+    }
   } finally {
     onProgress?.("");
   }

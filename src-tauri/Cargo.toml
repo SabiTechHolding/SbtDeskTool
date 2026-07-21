@@ -31,4 +31,4 @@ window-vibrancy = "0.5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Networking_WinInet", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Networking_WinInet", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
