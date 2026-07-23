@@ -1,4 +1,5 @@
 use crate::commands::settings::SettingsState;
+use std::io::Write;
 use tauri::State;
 
 #[tauri::command]
@@ -11,6 +12,19 @@ pub async fn get_network_strategy(state: State<'_, SettingsState>) -> Result<u8,
 }
 
 #[tauri::command]
-pub async fn resolve_system_proxy(url: String) -> Result<Option<String>, String> {
-    crate::engine::network::resolve_system_proxy(&url).await
+pub fn record_update_error(message: String) -> Result<(), String> {
+    let message = message.replace(['\r', '\n'], " ");
+    let message = message.chars().take(4_000).collect::<String>();
+    let path = crate::get_data_dir().join("app.log");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| format!("Unable to open {}: {error}", path.display()))?;
+    writeln!(
+        file,
+        "{} [update] {message}",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    )
+    .map_err(|error| format!("Unable to write {}: {error}", path.display()))
 }

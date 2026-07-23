@@ -65,7 +65,7 @@
   h2 { margin: 0 0 8px; font-size: 15px; }
   p { margin: 0; color: var(--fg2); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 17px; }
-  button { min-width: 72px; padding: 5px 13px; border: 1px solid var(--border); border-radius: 5px; color: var(--fg); font: inherit; font-size: 11px; cursor: pointer; }
+  button { min-width: 72px; height: 28px; padding: 0 13px; border: 1px solid var(--border); border-radius: 5px; color: var(--fg); font: inherit; font-size: 11px; line-height: 1; white-space: nowrap; cursor: pointer; }
   button.secondary { background: var(--btn-bg); }
   button.primary { border-color: var(--accent); background: var(--accent); color: var(--bg); }
   button:hover { filter: brightness(1.08); }

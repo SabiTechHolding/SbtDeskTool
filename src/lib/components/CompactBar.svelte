@@ -122,7 +122,7 @@
   <button class="icon-btn" class:active={onTop} onclick={onToggleOnTop} title="Always on top" aria-label="Always on top">
     <AppIcon name="pin" />
   </button>
-  <button class="full-btn" onclick={onToggleCompact} title="Exit compact mode">Full</button>
+  <button class="full-btn" onclick={onToggleCompact} title="Exit compact mode" aria-label="Exit compact mode"><AppIcon name="expand" size={12} /><span class="btn-label">Full</span></button>
 </div>
 
 <style>
@@ -139,6 +139,10 @@
   }
   .compact-tabs { display: flex; align-items: stretch; height: 100%; gap: 1px; }
   .icon-btn, .full-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
     height: 22px;
     border: 0;
     border-radius: 3px;
@@ -147,6 +151,8 @@
     font: inherit;
     font-size: 10px;
     cursor: pointer;
+    white-space: nowrap;
+    line-height: 1;
   }
   .icon-btn { display: grid; place-items: center; width: 24px; padding: 0; }
   .full-btn { padding: 0 6px; }
@@ -226,6 +232,7 @@
 
   @media (max-width: 420px) {
     .dropdown-trigger { max-width: 74px; }
-    .full-btn { padding: 0 4px; }
+    .full-btn { width: 24px; padding: 0; }
+    .full-btn .btn-label { display: none; }
   }
 </style>

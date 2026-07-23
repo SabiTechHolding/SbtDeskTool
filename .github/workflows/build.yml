@@ -244,27 +244,74 @@ jobs:
           updaterJsonPreferNsis: ${{ runner.os == 'Windows' }}
           retryAttempts: 2
 
-      - name: Prepare zipped Windows portable executable
+      - name: Prepare zipped Windows downloads
         if: runner.os == 'Windows'
-        id: portable
+        id: windows_downloads
         shell: pwsh
         run: |
-          $directory = "target/release/bundle/portable"
-          New-Item -ItemType Directory -Force -Path $directory | Out-Null
-          $baseName = "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-portable"
-          $exePath = Join-Path $directory "$baseName.exe"
-          $archivePath = Join-Path $directory "$baseName.zip"
-          Copy-Item -LiteralPath "target/release/sbt-desk-tool.exe" -Destination $exePath -Force
-          Compress-Archive -LiteralPath $exePath -DestinationPath $archivePath -Force
-          Remove-Item -LiteralPath $exePath -Force
-          "path=$archivePath" >> $env:GITHUB_OUTPUT
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-      - name: Upload zipped Windows portable executable to draft release
+          $directory = "target/release/bundle/release-downloads"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          $portableDirectory = Join-Path $directory "portable-stage"
+          New-Item -ItemType Directory -Force -Path $portableDirectory | Out-Null
+          $portableExe = Join-Path $portableDirectory "SbtDeskTool.exe"
+          $portableArchive = Join-Path $directory "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-portable.zip"
+          Copy-Item -LiteralPath "target/release/sbt-desk-tool.exe" -Destination $portableExe -Force
+          Compress-Archive -LiteralPath $portableExe -DestinationPath $portableArchive -Force
+          Remove-Item -LiteralPath $portableDirectory -Recurse -Force
+
+          $installers = @(Get-ChildItem -LiteralPath "target/release/bundle/nsis" -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one Windows NSIS installer, found $($installers.Count)"
+          }
+          $installer = $installers[0]
+          $installerArchive = Join-Path $directory "$($installer.BaseName).zip"
+          Compress-Archive -LiteralPath $installer.FullName -DestinationPath $installerArchive -Force
+
+          $portableZip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $portableArchive))
+          try {
+            $portableEntries = @($portableZip.Entries | ForEach-Object FullName)
+            if ($portableEntries.Count -ne 1 -or $portableEntries[0] -ne "SbtDeskTool.exe") {
+              throw "Portable ZIP must contain only SbtDeskTool.exe; found: $($portableEntries -join ', ')"
+            }
+          } finally {
+            $portableZip.Dispose()
+          }
+
+          $installerZip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $installerArchive))
+          try {
+            $installerEntries = @($installerZip.Entries | ForEach-Object FullName)
+            if ($installerEntries.Count -ne 1 -or $installerEntries[0] -ne $installer.Name) {
+              throw "Installer ZIP must contain only $($installer.Name); found: $($installerEntries -join ', ')"
+            }
+          } finally {
+            $installerZip.Dispose()
+          }
+
+          "portable_path=$portableArchive" >> $env:GITHUB_OUTPUT
+          "installer_path=$installerArchive" >> $env:GITHUB_OUTPUT
+          "installer_asset_name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload zipped Windows downloads to draft release
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ needs.release-metadata.outputs.tag }}" "${{ steps.portable.outputs.path }}" --clobber
+        run: |
+          gh release upload "${{ needs.release-metadata.outputs.tag }}" `
+            "${{ steps.windows_downloads.outputs.portable_path }}" `
+            "${{ steps.windows_downloads.outputs.installer_path }}" `
+            --clobber
+
+          # tauri-action also uploads the unpacked NSIS installer. Keep the
+          # signed .nsis.zip used by latest.json, but remove the direct EXE
+          # download after the user-facing installer ZIP is available.
+          $installerAsset = "${{ steps.windows_downloads.outputs.installer_asset_name }}"
+          $releaseAssets = @(gh release view "${{ needs.release-metadata.outputs.tag }}" --json assets --jq '.assets[].name')
+          if ($releaseAssets -contains $installerAsset) {
+            gh release delete-asset "${{ needs.release-metadata.outputs.tag }}" $installerAsset --yes
+          }
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
@@ -272,7 +319,8 @@ jobs:
           name: SbtDeskTool-${{ needs.release-metadata.outputs.display_version }}-${{ matrix.artifact }}
           path: |
             ${{ matrix.bundle_path }}
-            ${{ runner.os == 'Windows' && steps.portable.outputs.path || '' }}
+            ${{ runner.os == 'Windows' && steps.windows_downloads.outputs.portable_path || '' }}
+            ${{ runner.os == 'Windows' && steps.windows_downloads.outputs.installer_path || '' }}
           if-no-files-found: error
           retention-days: 30
 

@@ -419,8 +419,8 @@
 
 {#if booting}
   <div class="splash-root" data-theme={$themeStore.current}>
-    <img src={appLogo} alt="SbtDeskTool" />
-    <div class="splash-name">SbtDeskTool</div>
+    <img src={appLogo} alt="SBS Desk Tool" />
+    <div class="splash-name">SBS Desk Tool</div>
     <div class="splash-version">{appVersion || "Starting..."}</div>
     <div class="splash-loading"><span></span> Loading workspace...</div>
   </div>

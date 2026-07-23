@@ -163,7 +163,9 @@ fn apply_effects(window: &tauri::WebviewWindow, effect: &str) -> Result<(), Stri
         let _ = window_vibrancy::clear_blur(window);
         let _ = window_vibrancy::clear_acrylic(window);
         if *use_blur {
-            window_vibrancy::apply_blur(window, Some((0xCC, 0x00, 0x00, 0x00)))
+            // window-vibrancy expects RGBA. Keep the fallback surface dark while
+            // the webview is loading or repainting during a resize.
+            window_vibrancy::apply_blur(window, Some((0x1A, 0x1A, 0x1A, 0xCC)))
                 .map_err(|e| format!("Blur error: {e}"))?;
         } else {
             let _ = window.set_effects(None);

@@ -26,7 +26,7 @@ SbtDeskTool is a compact desktop toolbox for comparing, translating and organizi
 
 | Platform | Application and installer packages |
 | --- | --- |
-| Windows | Versioned portable `.zip` containing the app `.exe`, and a per-user NSIS installer |
+| Windows | Versioned portable `.zip` containing `SbtDeskTool.exe`, and a zipped per-user NSIS installer |
 | macOS | Universal Apple Silicon/Intel `.app` and `.dmg` |
 | Linux | AppImage, `.deb` and `.rpm` |
 
@@ -93,7 +93,7 @@ And on Linux:
 npm run package
 ```
 
-Packages must be built on their native operating system. GitHub Actions verifies all three platforms, builds a universal macOS package, uploads the Windows portable executable inside a ZIP archive, and keeps the release as a draft until every platform succeeds. Pushes to `main`, version tags and manual workflow runs all produce packages.
+Packages must be built on their native operating system. GitHub Actions verifies all three platforms, builds a universal macOS package, uploads both the Windows portable executable and per-user installer inside ZIP archives, and keeps the release as a draft until every platform succeeds. The portable archive keeps its versioned release name while the executable inside is always named `SbtDeskTool.exe`. Pushes to `main`, version tags and manual workflow runs all produce packages.
 
 ## Version and releases
 

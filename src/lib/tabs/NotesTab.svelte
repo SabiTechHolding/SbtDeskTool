@@ -307,18 +307,18 @@
           oninput={onTitleInput}
         />
         <div class="editor-actions">
-          <button class="pane-btn" class:active={showPreview} onclick={() => (showPreview = !showPreview)}>
-            👁 Preview
+          <button class="pane-btn" class:active={showPreview} onclick={() => (showPreview = !showPreview)} title="Toggle Preview">
+            <AppIcon name="preview" size={12} /><span class="btn-label">Preview</span>
           </button>
           <label class="auto-toggle">
-            <input type="checkbox" bind:checked={autoSave} onchange={toggleAutoSave} /> Auto
+            <input type="checkbox" bind:checked={autoSave} onchange={toggleAutoSave} /><span class="auto-label">Auto</span>
           </label>
           <span class="save-state" class:dirty={isDirty}>
             {isDirty ? "●" : "✓"}
           </span>
-          <button class="pane-btn" onclick={maybeSave}><AppIcon name="save" size={12} /> Save</button>
-          <button class="pane-btn" onclick={() => copyText(body)}>⎘ Copy</button>
-          <button class="pane-btn" class:active={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Notes"><AppIcon name="wrap" size={12} /> Wrap</button>
+          <button class="pane-btn" onclick={maybeSave} title="Save Note"><AppIcon name="save" size={12} /><span class="btn-label">Save</span></button>
+          <button class="pane-btn" onclick={() => copyText(body)} title="Copy Note"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
+          <button class="pane-btn" class:active={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Notes"><AppIcon name="wrap" size={12} /><span class="btn-label">Wrap</span></button>
         </div>
       </div>
       {/if}
@@ -417,6 +417,7 @@
 
   .title-input {
     flex: 1;
+    min-width: 0;
     padding: 3px 6px;
     background: var(--bg3);
     color: var(--fg);
@@ -435,6 +436,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    flex: 0 0 auto;
   }
 
   .auto-toggle {
@@ -460,15 +462,20 @@
   .pane-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 3px;
-    padding: 2px 6px;
+    height: var(--control-height);
+    padding: 0 var(--control-padding-x);
     background: transparent;
     border: none;
     color: var(--fg2);
     font-family: inherit;
     font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+    flex: 0 0 auto;
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: var(--control-radius);
   }
 
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }
@@ -551,11 +558,11 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: var(--control-height);
+    height: var(--control-height);
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--control-radius);
     background: transparent;
     color: var(--fg2);
     cursor: pointer;
@@ -650,5 +657,13 @@
     font-size: 9px;
     color: var(--fg2);
     opacity: 0.7;
+  }
+
+  @media (max-width: 680px) {
+    .editor-header { padding-inline: 4px; gap: 3px; }
+    .editor-actions { gap: 1px; }
+    .pane-btn { width: var(--control-height); min-width: var(--control-height); padding: 0; }
+    .btn-label, .auto-label { display: none; }
+    .auto-toggle { width: var(--control-height); justify-content: center; }
   }
 </style>

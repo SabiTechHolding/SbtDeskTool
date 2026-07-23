@@ -11,8 +11,22 @@ export interface DialogRequest {
 
 export type ShowDialog = (request: DialogRequest) => Promise<boolean>;
 
+interface UpdateMetadata {
+  rid: number;
+  currentVersion: string;
+  version: string;
+  date?: string;
+  body?: string;
+  rawJson: Record<string, unknown>;
+}
+
 const UPDATE_ENDPOINT =
   "https://github.com/SabiTechHolding/SbtDeskTool/releases/latest/download/latest.json";
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
 
 export async function checkForUpdates(
   force: boolean,
@@ -21,14 +35,11 @@ export async function checkForUpdates(
 ) {
   try {
     onProgress?.("Checking...");
-    const { check } = await import("@tauri-apps/plugin-updater");
-    const proxy = await invoke<string | null>("resolve_system_proxy", {
-      url: UPDATE_ENDPOINT,
-    }).catch(() => null);
-    const update = await check({
-      timeout: 15000,
-      ...(proxy ? { proxy } : {}),
+    const { Update } = await import("@tauri-apps/plugin-updater");
+    const metadata = await invoke<UpdateMetadata | null>("check_for_update", {
+      timeout: 20000,
     });
+    const update = metadata ? new Update(metadata) : null;
     if (!update) {
       if (force) await showDialog?.({ title: "Check Update", message: "You are up to date." });
       return;
@@ -50,7 +61,10 @@ export async function checkForUpdates(
       else onProgress?.("Installing...");
     });
     await invoke("restart_app");
-  } catch {
+  } catch (error) {
+    const detail = `${UPDATE_ENDPOINT} - ${errorMessage(error)}`;
+    console.error("Update check failed", error);
+    await invoke("record_update_error", { message: detail }).catch(() => undefined);
     if (force) {
       await showDialog?.({
         title: "Check Update",

@@ -76,7 +76,7 @@
         onclick={() => onTabSwitch(id)}
         title={label}
       >
-        <AppIcon name={icon} /> <span>{label}</span>
+        <AppIcon name={icon} /> <span class="btn-label">{label}</span>
       </button>
     {/each}
   </nav>
@@ -90,7 +90,7 @@
         onclick={onToggleLayout}
         title={layout === "horizontal" ? "Switch to Vertical" : "Switch to Horizontal"}
       >
-        <AppIcon name="layout" /> <span>{layout === "horizontal" ? "Horizontal" : "Vertical"}</span>
+        <AppIcon name="layout" /> <span class="btn-label">{layout === "horizontal" ? "Horizontal" : "Vertical"}</span>
       </button>
     {/if}
 
@@ -101,7 +101,7 @@
         onclick={() => (showEffectMenu = !showEffectMenu)}
         title="Window Effect"
       >
-        <AppIcon name="window" /> <span>{WINDOW_EFFECTS.find((e) => e.key === windowEffect)?.label ?? "Solid"}</span>
+        <AppIcon name="window" /> <span class="btn-label">{WINDOW_EFFECTS.find((e) => e.key === windowEffect)?.label ?? "Solid"}</span>
       </button>
       {#if showEffectMenu}
         <div class="effect-menu">
@@ -122,24 +122,24 @@
       onclick={onToggleCompact}
       title="Compact Mode"
     >
-      <AppIcon name="compact" /> <span>Compact</span>
+      <AppIcon name="compact" /> <span class="btn-label">Compact</span>
     </button>
 
     <button class="action-btn" class:toggled={onTop} onclick={onToggleOnTop} title="Always on Top">
-      <AppIcon name="pin" /> <span>On Top</span>
+      <AppIcon name="pin" /> <span class="btn-label">On Top</span>
     </button>
 
     <button class="action-btn" onclick={handleThemeToggle} title="Toggle Theme">
       <AppIcon name={$themeStore.current === "dark" ? "sun" : "moon"} />
-      <span>{$themeStore.current === "dark" ? "Light" : "Dark"}</span>
+      <span class="btn-label">{$themeStore.current === "dark" ? "Light" : "Dark"}</span>
     </button>
 
     <button class="action-btn" onclick={() => (showHelp = true)} title="Help and keyboard shortcuts">
-      <AppIcon name="help" /> <span>Help</span>
+      <AppIcon name="help" /> <span class="btn-label">Help</span>
     </button>
 
     <button class="action-btn" onclick={() => (showAbout = true)} title="About">
-      <AppIcon name="info" /> <span>About</span>
+      <AppIcon name="info" /> <span class="btn-label">About</span>
     </button>
   </div>
 </header>
@@ -224,7 +224,9 @@
   .action-btn {
     display: flex;
     align-items: center;
-    padding: 3px 6px;
+    justify-content: center;
+    height: 24px;
+    padding: 0 var(--control-padding-x);
     background: transparent;
     border: none;
     color: var(--fg2);
@@ -235,6 +237,8 @@
     white-space: nowrap;
     transition: background 0.15s, color 0.15s;
     gap: 4px;
+    flex: 0 0 auto;
+    line-height: 1;
   }
 
   .action-btn:hover {
@@ -284,5 +288,17 @@
 
   .effect-item.active {
     color: var(--accent);
+  }
+
+  @media (max-width: 820px) {
+    .action-btn .btn-label { display: none; }
+    .action-btn { width: 26px; padding: 0; }
+  }
+
+  @media (max-width: 560px) {
+    .tab-btn .btn-label { display: none; }
+    .tab-btn { width: 32px; justify-content: center; padding: 0; }
+    .separator { margin-inline: 2px; }
+    .actions { gap: 1px; padding-inline: 2px; }
   }
 </style>

@@ -50,7 +50,7 @@ fn normalize_proxy(proxy_list: &str, url: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn resolve_system_proxy_blocking(url: &str) -> Result<Option<String>, String> {
+pub(crate) fn resolve_system_proxy_blocking(url: &str) -> Result<Option<String>, String> {
     use std::{ffi::c_void, iter, os::windows::ffi::OsStrExt, ptr, slice};
     use windows_sys::Win32::{
         Foundation::GlobalFree,
@@ -172,19 +172,6 @@ fn resolve_system_proxy_blocking(url: &str) -> Result<Option<String>, String> {
     }
 
     Ok(static_proxy.and_then(|proxy| normalize_proxy(&proxy, url)))
-}
-
-#[cfg(target_os = "windows")]
-pub async fn resolve_system_proxy(url: &str) -> Result<Option<String>, String> {
-    let url = url.to_owned();
-    tokio::task::spawn_blocking(move || resolve_system_proxy_blocking(&url))
-        .await
-        .map_err(|error| format!("Windows proxy/PAC task error: {error}"))?
-}
-
-#[cfg(not(target_os = "windows"))]
-pub async fn resolve_system_proxy(_url: &str) -> Result<Option<String>, String> {
-    Ok(None)
 }
 
 async fn request_reqwest(

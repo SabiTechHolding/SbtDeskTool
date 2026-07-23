@@ -173,7 +173,8 @@
   .dropdown-trigger {
     display: flex;
     align-items: center;
-    padding: 2px 8px;
+    height: 24px;
+    padding: 0 8px;
     background: var(--combo-bg);
     color: var(--combo-fg);
     border: 1px solid var(--border);
@@ -185,6 +186,7 @@
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1;
   }
 
   .dropdown-trigger:hover {
@@ -256,5 +258,14 @@
 
   .swap-btn:hover {
     background: var(--btn-hover);
+  }
+
+  @media (max-width: 680px) {
+    .langbar { gap: 4px; padding-inline: 4px; }
+    .label { display: none; }
+    .lang-group, .dropdown-wrapper { min-width: 0; }
+    .lang-group { flex: 1 1 0; }
+    .dropdown-trigger { width: 100%; max-width: none; padding-inline: 5px; }
+    .swap-btn { flex: 0 0 24px; }
   }
 </style>

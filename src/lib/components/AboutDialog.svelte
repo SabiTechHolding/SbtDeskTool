@@ -28,7 +28,7 @@
 <div class="overlay" onclick={onclose} onkeydown={(e) => e.key === 'Escape' && onclose()}>
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="dialog" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-    <h2>SbtDeskTool</h2>
+    <h2>SBS Desk Tool</h2>
     <p class="version">Version: {version}</p>
     <p class="link">GitHub: SabiTechHolding/SbtDeskTool</p>
     <div class="actions">
@@ -86,13 +86,17 @@
   }
 
   .btn {
-    padding: 4px 14px;
+    min-width: 72px;
+    height: 28px;
+    padding: 0 13px;
     background: var(--btn-bg);
     color: var(--btn-fg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 5px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
     cursor: pointer;
   }
 

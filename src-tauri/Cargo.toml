@@ -24,11 +24,15 @@ tauri-plugin-log = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-fs = "2"
-tauri-plugin-updater = "2"
 reqwest = { version = "0.12", features = ["json", "socks"] }
 tokio = { version = "1", features = ["full"] }
 window-vibrancy = "0.5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
+reqwest-updater = { package = "reqwest", version = "0.13", default-features = false, features = ["system-proxy"] }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Networking_WinHttp", "Win32_Networking_WinInet", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(not(windows))'.dependencies]
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "zip"] }

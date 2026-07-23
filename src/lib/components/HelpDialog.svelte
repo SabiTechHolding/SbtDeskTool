@@ -10,7 +10,7 @@
     ["Ctrl + Enter · Notes", "Save the current note"],
     ["Ctrl + mouse wheel or Ctrl + / −", "Increase or decrease editor font size"],
     ["Ctrl + Z / Ctrl + Y", "Undo / redo in editable text areas"],
-    ["Ctrl + Alt + T", "Show or hide SbtDeskTool globally"],
+    ["Ctrl + Alt + T", "Show or hide SBS Desk Tool globally"],
     ["Escape", "Close search or this guide"],
   ];
 
@@ -76,5 +76,5 @@
   .shortcut-list { display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 7px 14px; font-size: 11px; color: var(--fg2); }
   kbd { padding: 3px 7px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--bg2); color: var(--fg); font: 10px "Consolas", monospace; text-align: center; }
   footer { display: flex; justify-content: flex-end; padding: 10px 18px; border-top: 1px solid var(--border); }
-  .primary { padding: 5px 15px; border: 1px solid var(--accent); border-radius: 5px; background: var(--accent); color: var(--bg); font: inherit; font-size: 11px; cursor: pointer; }
+  .primary { min-width: 72px; height: 28px; padding: 0 13px; border: 1px solid var(--accent); border-radius: 5px; background: var(--accent); color: var(--bg); font: inherit; font-size: 11px; line-height: 1; white-space: nowrap; cursor: pointer; }
 </style>

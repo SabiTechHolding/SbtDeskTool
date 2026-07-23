@@ -284,38 +284,38 @@
   <div class="diff-header">
     <div class="pane-header left-header">
       <span class="pane-title">◀ Left</span>
-      <button class="pane-btn" onclick={clearLeft}>✕ Clear</button>
-      <button class="pane-btn" onclick={() => copyText(leftText)}>⎘ Copy</button>
+      <button class="pane-btn" onclick={clearLeft} title="Clear Left" aria-label="Clear Left"><AppIcon name="clear" size={12} /><span class="btn-label">Clear</span></button>
+      <button class="pane-btn" onclick={() => copyText(leftText)} title="Copy Left" aria-label="Copy Left"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
     </div>
       <div class="diff-actions">
         <div class="control-group diff-view-group" aria-label="Diff text display">
-          <button class="icon-btn" class:toggled={wordDiff} aria-pressed={wordDiff} onclick={toggleWordDiff} title="Highlight changed words and characters"><AppIcon name="word" size={12} /> Word</button>
-          <button class="icon-btn" class:toggled={ignoreWhitespace} aria-pressed={ignoreWhitespace} onclick={toggleIgnoreWhitespace} title="Ignore whitespace-only changes"><AppIcon name="ignore-whitespace" size={12} /> Ignore WS</button>
-          <button class="icon-btn" class:toggled={wordWrap} aria-pressed={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Diff"><AppIcon name="wrap" size={12} /> Wrap</button>
-          <button class="icon-btn" class:toggled={showWhitespace} aria-pressed={showWhitespace} onclick={toggleShowWhitespace} title="Show or hide whitespace characters"><AppIcon name="whitespace" size={12} /> Show WS</button>
+          <button class="icon-btn" class:toggled={wordDiff} aria-pressed={wordDiff} onclick={toggleWordDiff} title="Highlight changed words and characters"><AppIcon name="word" size={12} /><span class="btn-label">Word</span></button>
+          <button class="icon-btn" class:toggled={ignoreWhitespace} aria-pressed={ignoreWhitespace} onclick={toggleIgnoreWhitespace} title="Ignore whitespace-only changes"><AppIcon name="ignore-whitespace" size={12} /><span class="btn-label">Ignore WS</span></button>
+          <button class="icon-btn" class:toggled={wordWrap} aria-pressed={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Diff"><AppIcon name="wrap" size={12} /><span class="btn-label">Wrap</span></button>
+          <button class="icon-btn" class:toggled={showWhitespace} aria-pressed={showWhitespace} onclick={toggleShowWhitespace} title="Show or hide whitespace characters"><AppIcon name="whitespace" size={12} /><span class="btn-label">Show WS</span></button>
         </div>
         <div class="control-group" aria-label="Diff algorithm">
-          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "legacy"} onclick={() => void setAlgorithm("legacy")} title="Use legacy diff alignment">Legacy</button>
-          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "advanced"} onclick={() => void setAlgorithm("advanced")} title="Use advanced diff alignment">Advanced</button>
+          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "legacy"} onclick={() => void setAlgorithm("legacy")} title="Use legacy diff alignment"><AppIcon name="legacy" size={12} /><span class="btn-label">Legacy</span></button>
+          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "advanced"} onclick={() => void setAlgorithm("advanced")} title="Use advanced diff alignment"><AppIcon name="advanced" size={12} /><span class="btn-label">Advanced</span></button>
         </div>
         <div class="control-group" aria-label="Layout visibility">
           <button class="icon-btn layout-btn" class:toggled={showDetail} onclick={toggleDetail} title="Show or hide focused-line details">
-            <AppIcon name="detail" size={12} /> Detail
+            <AppIcon name="detail" size={12} /><span class="btn-label">Detail</span>
           </button>
           <button class="icon-btn layout-btn" class:toggled={showCenterControls} onclick={() => void handleActionGutterChange()} title="Show or hide copy/revert action gutter between editors">
-            <AppIcon name="actions" size={12} /> Actions
+            <AppIcon name="actions" size={12} /><span class="btn-label">Actions</span>
           </button>
         </div>
         <div class="control-group" aria-label="Search controls">
-          <button class="icon-btn" class:toggled={findOpen} onclick={toggleCommonFind} title="Show or hide common search">⌕ All</button>
-          <button class="icon-btn" class:toggled={leftFindOpen} onclick={() => void toggleSideFind("left")} title="Show or hide Left editor search">L</button>
-          <button class="icon-btn" class:toggled={rightFindOpen} onclick={() => void toggleSideFind("right")} title="Show or hide Right editor search">R</button>
+          <button class="icon-btn" class:toggled={findOpen} onclick={toggleCommonFind} title="Show or hide common search"><AppIcon name="search" size={12} /><span class="btn-label">All</span></button>
+          <button class="icon-btn" class:toggled={leftFindOpen} onclick={() => void toggleSideFind("left")} title="Show or hide Left editor search"><AppIcon name="search-left" size={12} /><span class="btn-label">L</span></button>
+          <button class="icon-btn" class:toggled={rightFindOpen} onclick={() => void toggleSideFind("right")} title="Show or hide Right editor search"><AppIcon name="search-right" size={12} /><span class="btn-label">R</span></button>
         </div>
       </div>
     <div class="pane-header right-header">
       <span class="pane-title">▶ Right</span>
-      <button class="pane-btn" onclick={clearRight}>✕ Clear</button>
-      <button class="pane-btn" onclick={() => copyText(rightText)}>⎘ Copy</button>
+      <button class="pane-btn" onclick={clearRight} title="Clear Right" aria-label="Clear Right"><AppIcon name="clear" size={12} /><span class="btn-label">Clear</span></button>
+      <button class="pane-btn" onclick={() => copyText(rightText)} title="Copy Right" aria-label="Copy Right"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
     </div>
   </div>
   {/if}
@@ -396,10 +396,10 @@
   .right-header { flex: 1; justify-content: flex-end; }
   .pane-title { font-size: 11px; font-weight: 600; color: var(--fg2); }
   .diff-actions { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
-  .pane-btn { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
+  .pane-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); padding: 0 var(--control-padding-x); background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; border-radius: var(--control-radius); }
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }
   .control-group { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-  .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: 20px; min-width: 22px; padding: 0 5px; border: 0; border-right: 1px solid var(--border); background: var(--bg2); color: var(--fg2); font: inherit; font-size: 10px; cursor: pointer; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); min-width: var(--control-height); padding: 0 5px; border: 0; border-right: 1px solid var(--border); background: var(--bg2); color: var(--fg2); font: inherit; font-size: 10px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; }
   .icon-btn:last-child { border-right: 0; }
   .icon-btn:hover { background: var(--btn-hover); color: var(--fg); }
   .icon-btn.toggled { background: color-mix(in srgb, var(--accent) 22%, var(--bg2)); color: var(--accent); }
@@ -417,4 +417,24 @@
   .detail-text { color: var(--fg); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
   .detail-delete { background: color-mix(in srgb, var(--diff-del-inline) 68%, transparent); border-radius: 2px; }
   .detail-insert { background: color-mix(in srgb, var(--diff-add-inline) 68%, transparent); border-radius: 2px; }
+
+  @media (max-width: 760px) {
+    .diff-actions { gap: 2px; padding-inline: 2px; }
+    .pane-header { gap: 1px; padding-inline: 2px; }
+    .pane-btn, .icon-btn, .algorithm-btn, .layout-btn,
+    .diff-view-group .icon-btn,
+    .diff-view-group .icon-btn:nth-child(2),
+    .diff-view-group .icon-btn:nth-child(4) {
+      width: var(--control-height);
+      min-width: var(--control-height);
+      padding: 0;
+    }
+    .btn-label { display: none; }
+  }
+
+  @media (max-width: 520px) {
+    .pane-title { display: none; }
+    .diff-actions { gap: 1px; padding-inline: 1px; }
+    .control-group { border-radius: 3px; }
+  }
 </style>

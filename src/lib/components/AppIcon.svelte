@@ -25,8 +25,22 @@
     <path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/>
   {:else if name === "search"}
     <circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/>
+  {:else if name === "search-left"}
+    <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><circle cx="7.5" cy="10.5" r="2.5"/><path d="m9.3 12.3 2.2 2.2"/>
+  {:else if name === "search-right"}
+    <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><circle cx="16.5" cy="10.5" r="2.5"/><path d="m18.3 12.3 2.2 2.2"/>
   {:else if name === "copy"}
     <rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/>
+  {:else if name === "clear"}
+    <path d="m6 6 12 12M18 6 6 18"/>
+  {:else if name === "swap"}
+    <path d="M4 7h13M14 4l3 3-3 3M20 17H7M10 14l-3 3 3 3"/>
+  {:else if name === "legacy"}
+    <path d="M5 6h14M5 12h14M5 18h14"/><path d="m7 4-2 2 2 2M17 10l2 2-2 2M7 16l-2 2 2 2"/>
+  {:else if name === "advanced"}
+    <circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h8M6 8v8M18 8v8M8 18h8M8 7.5l8 9"/>
+  {:else if name === "expand"}
+    <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><path d="m3 8 5-5M21 8l-5-5M3 16l5 5M21 16l-5 5"/>
   {:else if name === "preview"}
     <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/>
   {:else if name === "word"}

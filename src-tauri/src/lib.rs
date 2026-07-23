@@ -7,10 +7,11 @@ mod models;
 #[allow(unused_imports)]
 use commands::{
     diff::compute_diff,
-    network::{get_network_strategy, resolve_system_proxy},
+    network::{get_network_strategy, record_update_error},
     notes::{delete_note, flush_notes, list_notes, save_note},
     settings::{get_settings, save_setting, save_settings_flush, SettingsState},
     translate::{translate, translate_units},
+    updater::check_for_update,
     window::{
         exit_app, restart_app, set_always_on_top, set_window_effect, set_window_size,
         toggle_compact,
@@ -262,7 +263,8 @@ pub fn run() {
             restart_app,
             exit_app,
             get_network_strategy,
-            resolve_system_proxy,
+            record_update_error,
+            check_for_update,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Resized(size) => {

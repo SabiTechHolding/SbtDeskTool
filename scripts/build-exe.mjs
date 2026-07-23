@@ -2,7 +2,9 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const projectRoot = process.cwd();
+// Normalize junctions/symlinks so Vite does not see the HTML entry and output
+// directory as belonging to two different project roots.
+const projectRoot = fs.realpathSync(process.cwd());
 const stageDirectory = path.join(
   projectRoot,
   "tmp",

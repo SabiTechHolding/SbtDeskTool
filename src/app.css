@@ -44,6 +44,9 @@
   --find-control-disabled: rgba(204, 204, 204, 0.5);
   --find-control-hover: rgba(90, 93, 94, 0.31);
   --find-no-results: #f48771;
+  --control-height: 22px;
+  --control-radius: 3px;
+  --control-padding-x: 6px;
 }
 
 [data-theme="light"] {

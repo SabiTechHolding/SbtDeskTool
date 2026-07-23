@@ -407,10 +407,10 @@
         <span class="pane-title">Source</span>
         <div class="pane-actions">
           {#if isTranslating}<span class="translation-state">Translating...</span>{/if}
-          <button class="pane-btn" onclick={clearSrc}>✕ Clear</button>
-          <button class="pane-btn" onclick={() => copyText(sourceText)}>⎘ Copy</button>
-          <button class="pane-btn" class:toggled={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Translate"><AppIcon name="wrap" size={12} /> Wrap</button>
-          <button class="pane-btn" class:toggled={sourceFindOpen} onclick={() => void toggleEditorFind("source")} title="Show or hide Source editor search">⌕ S</button>
+          <button class="pane-btn" onclick={clearSrc} title="Clear Source" aria-label="Clear Source"><AppIcon name="clear" size={12} /><span class="btn-label">Clear</span></button>
+          <button class="pane-btn" onclick={() => copyText(sourceText)} title="Copy Source" aria-label="Copy Source"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
+          <button class="pane-btn" class:toggled={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Translate"><AppIcon name="wrap" size={12} /><span class="btn-label">Wrap</span></button>
+          <button class="pane-btn" class:toggled={sourceFindOpen} onclick={() => void toggleEditorFind("source")} title="Show or hide Source editor search"><AppIcon name="search-left" size={12} /><span class="btn-label">S</span></button>
         </div>
       </div>
       {/if}
@@ -447,9 +447,9 @@
           {/if}
         </span>
         <div class="pane-actions">
-          <button class="pane-btn" onclick={swapTranslation} title="Swap Source/Translated">⇄ Swap</button>
-          <button class="pane-btn" onclick={() => copyText(translatedText)}>⎘ Copy</button>
-          <button class="pane-btn" class:toggled={translatedFindOpen} onclick={() => void toggleEditorFind("translated")} title="Show or hide Translated editor search">⌕ T</button>
+          <button class="pane-btn" onclick={swapTranslation} title="Swap Source/Translated"><AppIcon name="swap" size={12} /><span class="btn-label">Swap</span></button>
+          <button class="pane-btn" onclick={() => copyText(translatedText)} title="Copy Translated" aria-label="Copy Translated"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
+          <button class="pane-btn" class:toggled={translatedFindOpen} onclick={() => void toggleEditorFind("translated")} title="Show or hide Translated editor search"><AppIcon name="search-right" size={12} /><span class="btn-label">T</span></button>
         </div>
       </div>
       {/if}
@@ -495,7 +495,7 @@
   .pane-title { font-size: 11px; font-weight: 600; color: var(--fg2); display: flex; align-items: center; gap: 6px; }
   .detected-badge { font-size: 10px; padding: 1px 5px; background: var(--accent); color: var(--bg); border-radius: 3px; font-weight: 500; }
   .pane-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
-  .pane-btn { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
+  .pane-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); padding: 0 var(--control-padding-x); background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; border-radius: var(--control-radius); }
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }
   .pane-btn:disabled { opacity: 0.5; cursor: default; }
   .pane-btn.toggled { background: var(--accent); color: var(--bg); }
@@ -504,4 +504,12 @@
   .pane-divider.horizontal { width: 5px; cursor: col-resize; }
   .pane-divider.vertical { height: 5px; cursor: row-resize; }
   .pane-divider:hover { background: var(--accent); }
+
+  @media (max-width: 680px) {
+    .pane-header { padding-inline: 4px; gap: 3px; }
+    .pane-actions { gap: 1px; }
+    .pane-btn { width: var(--control-height); min-width: var(--control-height); padding: 0; }
+    .btn-label { display: none; }
+    .translation-state { max-width: 58px; overflow: hidden; text-overflow: ellipsis; }
+  }
 </style>
