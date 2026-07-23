@@ -1,11 +1,12 @@
 <script lang="ts">
   import CmEditor from "../components/CmEditor.svelte";
+  import type { EditorScrollState } from "../components/CmEditor.svelte";
   import ContextMenu from "../components/ContextMenu.svelte";
   import type { ContextItem } from "../components/ContextMenu.svelte";
   import PopupDict from "../components/PopupDict.svelte";
   import FindBar from "../components/FindBar.svelte";
   import AppIcon from "../components/AppIcon.svelte";
-  import { saveSetting } from "../stores/settings";
+  import { loadSettings, saveSetting } from "../stores/settings";
   import { langNameFromCode, mapLang } from "../utils/languages";
   import { onMount, onDestroy } from "svelte";
 
@@ -38,12 +39,16 @@
   interface TranUnit {
     source: string;
     translated: string;
+    detectedLang?: string;
   }
   let tranUnits = $state<TranUnit[]>([]);
   let prevSignature = $state(""); // srcLang+destLang to detect engine change
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let sourceSaveTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingTranslate = false;
+  let sourceTouched = false;
+  let disposed = false;
 
   let sashPos = $state(50);
   $effect(() => { sashPos = initialSash; });
@@ -64,6 +69,11 @@
   let languageSignature = "";
   $effect(() => {
     const signature = `${srcLang}|${destLang}`;
+    if (srcLang !== "Auto Detect") {
+      detectedLang = sourceText.trim() ? srcLang : "";
+    } else if (languageSignature && !languageSignature.startsWith("Auto Detect|")) {
+      detectedLang = "";
+    }
     if (languageSignature && signature !== languageSignature && sourceText.trim()) {
       if (debounceTimer) clearTimeout(debounceTimer);
       queueMicrotask(doTranslate);
@@ -102,7 +112,6 @@
     const newUnits: TranUnit[] = [];
     let newCount = 0;
     let reusedCount = 0;
-    let nextDetectedLang = "";
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -129,7 +138,11 @@
         if (cached && src.trim()) {
           const trailing = src.match(/[\r\n]+$/)?.[0] ?? "";
           const translatedCore = cached.translated.replace(/[\r\n]+$/, "");
-          newUnits.push({ source: src, translated: translatedCore + trailing });
+          newUnits.push({
+            source: src,
+            translated: translatedCore + trailing,
+            detectedLang: cached.detectedLang,
+          });
           reusedCount++;
         } else if (src.trim()) {
           toTranslate.push(src.replace(/[\r\n]+$/, ""));
@@ -156,8 +169,8 @@
           if (!r) throw new Error("Translation service returned an incomplete result");
           const trailing = units[idx].match(/[\r\n]+$/)?.[0] ?? "";
           newUnits[idx].translated = r.translated + trailing;
-          if (r.detected_lang && srcLang === "Auto Detect") {
-            nextDetectedLang = langNameFromCode(r.detected_lang);
+          if (r.detected_lang && r.detected_lang !== "auto") {
+            newUnits[idx].detectedLang = langNameFromCode(r.detected_lang);
           }
         }
         newCount = toTranslate.length;
@@ -169,7 +182,20 @@
         return;
       }
       translatedText = newUnits.map(u => u.translated).join("");
-      detectedLang = nextDetectedLang || detectedLang;
+      if (srcLang === "Auto Detect") {
+        const languageWeights = new Map<string, number>();
+        for (const unit of newUnits) {
+          if (!unit.detectedLang) continue;
+          const weight = Math.max(1, unit.source.replace(/\s/g, "").length);
+          languageWeights.set(
+            unit.detectedLang,
+            (languageWeights.get(unit.detectedLang) ?? 0) + weight,
+          );
+        }
+        detectedLang = [...languageWeights.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+      } else {
+        detectedLang = srcLang;
+      }
       tranUnits = newUnits;
       prevSignature = signature;
 
@@ -202,9 +228,33 @@
   }
 
   function onSourceChange(text: string) {
+    sourceTouched = true;
     sourceText = text;
     queueMicrotask(() => findBar?.refresh());
+    scheduleSourceSave();
     scheduleTranslate();
+  }
+
+  function scheduleSourceSave() {
+    if (sourceSaveTimer) clearTimeout(sourceSaveTimer);
+    sourceSaveTimer = setTimeout(() => {
+      sourceSaveTimer = null;
+      void saveSetting("tran_source_text", sourceText);
+    }, 350);
+  }
+
+  function flushSource(): Promise<void> {
+    if (sourceSaveTimer) {
+      clearTimeout(sourceSaveTimer);
+      sourceSaveTimer = null;
+    }
+    return saveSetting("tran_source_text", sourceText);
+  }
+
+  function handleAppFlush(event: Event) {
+    const task = flushSource();
+    const detail = (event as CustomEvent<{ tasks?: Promise<unknown>[] }>).detail;
+    detail?.tasks?.push(task);
   }
 
   function scheduleTranslate() {
@@ -233,6 +283,11 @@
 
   function handleCursorChange(side: string, line: number, col: number, selLen: number, chars: number) {
     onCursorChange?.(side, line, col, selLen, chars);
+  }
+
+  function syncEditorScroll(side: "source" | "translated", state: EditorScrollState) {
+    if (side === "source") translatedEditor?.syncScroll(state);
+    else sourceEditor?.syncScroll(state);
   }
 
   let sourceEditor: CmEditor;
@@ -282,11 +337,13 @@
     }
     pendingTranslate = false;
     sourceText = "";
+    sourceTouched = true;
     translatedText = "";
     detectedLang = "";
     tranUnits = [];
     prevSignature = "";
     queueMicrotask(() => findBar?.refresh());
+    scheduleSourceSave();
     onStatusUpdate?.("Cleared", "normal", 0, 0);
   }
 
@@ -309,16 +366,30 @@
 
   function handleDropEvent(e: Event) {
     const detail = (e as CustomEvent).detail;
-    if (typeof detail === "string") { sourceText = detail; scheduleTranslate(); }
+    if (typeof detail === "string") {
+      sourceTouched = true;
+      sourceText = detail;
+      scheduleSourceSave();
+      scheduleTranslate();
+    }
   }
 
   onMount(() => {
     document.addEventListener("tran:setSource", handleDropEvent);
+    document.addEventListener("app:flush", handleAppFlush);
+    void loadSettings().then((settings) => {
+      if (disposed || sourceTouched) return;
+      sourceText = settings.tran_source_text;
+      if (sourceText.trim()) scheduleTranslate();
+    });
   });
 
   onDestroy(() => {
+    disposed = true;
     if (debounceTimer) clearTimeout(debounceTimer);
+    document.removeEventListener("app:flush", handleAppFlush);
     document.removeEventListener("tran:setSource", handleDropEvent);
+    void flushSource();
   });
 
   async function contextCopy(editor: { copySelection: () => Promise<boolean> } | undefined) {
@@ -412,6 +483,7 @@
         onChange={onSourceChange}
         onKeyDown={handleSourceKeyDown}
         onContextMenu={(e) => showContextMenu(e, true)}
+        onScrollChange={(state) => syncEditorScroll("source", state)}
         onCursorChange={(line, col, selLen, chars) => handleCursorChange("source", line, col, selLen, chars)}
         onFindVisibilityChange={(visible) => handleEditorFindVisibility("source", visible)}
         onWheel={handleWheel}
@@ -452,6 +524,7 @@
         readonly={true}
         onKeyDown={handleSourceKeyDown}
         onContextMenu={(e) => showContextMenu(e, false)}
+        onScrollChange={(state) => syncEditorScroll("translated", state)}
         onCursorChange={(line, col, selLen, chars) => handleCursorChange("translated", line, col, selLen, chars)}
         onFindVisibilityChange={(visible) => handleEditorFindVisibility("translated", visible)}
         onWheel={handleWheel}

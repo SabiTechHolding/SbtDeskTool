@@ -19,6 +19,10 @@ pub struct UpdateMetadata {
     raw_json: serde_json::Value,
 }
 
+struct DownloadedUpdate(Vec<u8>);
+
+impl tauri::Resource for DownloadedUpdate {}
+
 fn network_strategy(state: &State<'_, SettingsState>) -> u8 {
     state
         .0
@@ -132,11 +136,11 @@ pub async fn check_for_update(
 }
 
 #[tauri::command]
-pub async fn download_and_install_update(
+pub async fn download_update(
     webview: Webview,
     state: State<'_, SettingsState>,
     rid: ResourceId,
-) -> Result<(), String> {
+) -> Result<ResourceId, String> {
     let update = webview
         .resources_table()
         .get::<Update>(rid)
@@ -149,8 +153,8 @@ pub async fn download_and_install_update(
     .await?;
     persist_network_strategy(&state, strategy)?;
 
-    // Feed the core-downloaded bytes back through the updater's verifier and
-    // installer. The release signature is checked before anything is executed.
+    // Feed the core-downloaded bytes back through the updater verifier. Keep
+    // the verified package in memory until the user accepts the install dialog.
     let (download_url, bridge) = serve_once(bytes, "application/octet-stream").await?;
     let mut local_update = (*update).clone();
     local_update.download_url = download_url;
@@ -158,9 +162,37 @@ pub async fn download_and_install_update(
     local_update.proxy = None;
     local_update.timeout = Some(Duration::from_secs(60));
     let result = local_update
-        .download_and_install(|_, _| {}, || {})
+        .download(|_, _| {}, || {})
         .await
         .map_err(|error| error.to_string());
     bridge.abort();
+    let verified = result?;
+    Ok(webview.resources_table().add(DownloadedUpdate(verified)))
+}
+
+#[tauri::command]
+pub fn install_downloaded_update(
+    webview: Webview,
+    update_rid: ResourceId,
+    bytes_rid: ResourceId,
+) -> Result<(), String> {
+    let update = webview
+        .resources_table()
+        .get::<Update>(update_rid)
+        .map_err(|error| error.to_string())?;
+    let bytes = webview
+        .resources_table()
+        .get::<DownloadedUpdate>(bytes_rid)
+        .map_err(|error| error.to_string())?;
+    let result = update.install(&bytes.0).map_err(|error| error.to_string());
+    let _ = webview.resources_table().close(bytes_rid);
     result
+}
+
+#[tauri::command]
+pub fn discard_downloaded_update(webview: Webview, bytes_rid: ResourceId) -> Result<(), String> {
+    webview
+        .resources_table()
+        .close(bytes_rid)
+        .map_err(|error| error.to_string())
 }

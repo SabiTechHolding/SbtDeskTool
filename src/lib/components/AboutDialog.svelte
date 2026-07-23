@@ -2,8 +2,9 @@
   import { onMount } from "svelte";
   import { getVersion } from "@tauri-apps/api/app";
   import { formatAppVersion } from "../utils/version";
+  import type { UpdateProgress } from "../utils/updater";
 
-  let { onclose, onCheckUpdate }: { onclose: () => void; onCheckUpdate: (onProgress: (message: string) => void) => Promise<void> } = $props();
+  let { onclose, onCheckUpdate }: { onclose: () => void; onCheckUpdate: (onProgress: (progress: UpdateProgress) => void) => Promise<void> } = $props();
 
   let checking = $state(false);
   let progress = $state("");
@@ -19,7 +20,7 @@
 
   async function checkUpdate() {
     checking = true;
-    await onCheckUpdate((message) => (progress = message));
+    await onCheckUpdate((state) => (progress = state.message));
     checking = false;
   }
 </script>

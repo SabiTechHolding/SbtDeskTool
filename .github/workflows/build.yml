@@ -185,6 +185,18 @@ jobs:
       - name: Apply release version
         run: node scripts/set-version.mjs "${{ needs.release-metadata.outputs.tag }}"
 
+      - name: Verify bundle hook path
+        shell: pwsh
+        run: |
+          $config = Get-Content -LiteralPath "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+          $expected = "node ./scripts/set-windows-product-version.mjs"
+          if ($config.build.beforeBundleCommand -ne $expected) {
+            throw "beforeBundleCommand must be '$expected', found '$($config.build.beforeBundleCommand)'"
+          }
+          if (-not (Test-Path -LiteralPath "scripts/set-windows-product-version.mjs" -PathType Leaf)) {
+            throw "Missing scripts/set-windows-product-version.mjs"
+          }
+
       - name: Require updater signing secrets
         shell: pwsh
         run: |

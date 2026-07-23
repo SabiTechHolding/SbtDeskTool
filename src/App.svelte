@@ -16,7 +16,7 @@
   import AppDialog from "./lib/components/AppDialog.svelte";
   import { themeStore } from "./lib/stores/theme";
   import { loadSettings, saveSetting, type AppSettings } from "./lib/stores/settings";
-  import { checkForUpdates, type DialogRequest } from "./lib/utils/updater";
+  import { checkForUpdates, type DialogRequest, type UpdateProgress } from "./lib/utils/updater";
   import { formatAppVersion } from "./lib/utils/version";
   import { swapLanguages } from "./lib/utils/languages";
 
@@ -39,6 +39,7 @@
   let dragOver = $state(false);
   let dialog = $state<DialogRequest | null>(null);
   let dialogResolver: ((accepted: boolean) => void) | null = null;
+  let updateDownloadVersion = $state<string | null>(null);
   let compactNotes = $state<Array<{ id: number; title: string }>>([]);
   let compactNoteId = $state<number | null>(null);
 
@@ -120,8 +121,11 @@
     resolve?.(accepted);
   }
 
-  async function handleCheckUpdate(onProgress?: (message: string) => void, force = true) {
-    await checkForUpdates(force, onProgress, showDialog);
+  async function handleCheckUpdate(onProgress?: (progress: UpdateProgress) => void, force = true) {
+    await checkForUpdates(force, (progress) => {
+      updateDownloadVersion = progress.phase === "downloading" ? progress.version ?? "" : null;
+      onProgress?.(progress);
+    }, showDialog);
   }
 
   onMount(() => {
@@ -463,6 +467,7 @@
       {compact}
       {windowEffect}
       {onTop}
+      updateDownloading={updateDownloadVersion !== null}
       onTabSwitch={handleTabSwitch}
       onToggleCompact={handleToggleCompact}
       onToggleOnTop={handleToggleOnTop}
@@ -507,6 +512,15 @@
       onToggleDiffIgnoreWhitespace={() => diffTab?.toggleIgnoreWhitespaceControl()}
       onSetDiffAlgorithm={(algorithm) => diffTab?.setAlgorithmControl(algorithm)}
     />
+  {/if}
+
+  {#if updateDownloadVersion !== null}
+    <div class="update-download" role="status" aria-live="polite">
+      <span>Downloading update {updateDownloadVersion}...</span>
+      <div class="update-progress-track" role="progressbar" aria-label={`Downloading update ${updateDownloadVersion}`}>
+        <span></span>
+      </div>
+    </div>
   {/if}
 
   {#if dragOver}
@@ -633,6 +647,10 @@
   .splash-loading { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: var(--fg2); font-size: 11px; }
   .splash-loading span { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: splash-spin .8s linear infinite; }
   @keyframes splash-spin { to { transform: rotate(360deg); } }
+  .update-download { display: flex; flex: none; align-items: center; justify-content: center; gap: 10px; min-height: 24px; padding: 0 10px; border-bottom: 1px solid var(--border); background: var(--bg3); color: var(--fg2); font-size: 11px; }
+  .update-progress-track { width: min(220px, 38vw); height: 4px; overflow: hidden; border-radius: 999px; background: var(--border); }
+  .update-progress-track span { display: block; width: 42%; height: 100%; border-radius: inherit; background: var(--accent); animation: update-progress 1.1s ease-in-out infinite; }
+  @keyframes update-progress { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
   .app-root { display: flex; flex-direction: column; height: 100vh; background: var(--bg); }
   .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
   .tab-panel { display: none; flex: 1; overflow: hidden; }

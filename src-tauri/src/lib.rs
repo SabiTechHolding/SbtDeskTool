@@ -11,7 +11,9 @@ use commands::{
     notes::{delete_note, flush_notes, list_notes, reorder_notes, save_note},
     settings::{get_settings, save_setting, save_settings_flush, SettingsState},
     translate::{translate, translate_units},
-    updater::{check_for_update, download_and_install_update},
+    updater::{
+        check_for_update, discard_downloaded_update, download_update, install_downloaded_update,
+    },
     window::{
         exit_app, restart_app, set_always_on_top, set_window_effect, set_window_size,
         toggle_compact,
@@ -53,6 +55,7 @@ fn default_settings() -> serde_json::Map<String, Value> {
     map.insert("engine".into(), Value::String("Google Translate".into()));
     map.insert("src_lang".into(), Value::String("Auto Detect".into()));
     map.insert("dest_lang".into(), Value::String("English".into()));
+    map.insert("tran_source_text".into(), Value::String(String::new()));
     map.insert("font_size_tran".into(), Value::Number(10.into()));
     map.insert("font_size_diff".into(), Value::Number(10.into()));
     map.insert("font_size_note".into(), Value::Number(10.into()));
@@ -209,6 +212,7 @@ mod settings_tests {
         assert_eq!(settings["word_wrap_note"], Value::Bool(false));
         assert_eq!(settings["window_effect"], Value::String("ghost".into()));
         assert_eq!(settings["diff_left_ratio"].as_f64(), Some(0.6));
+        assert_eq!(settings["tran_source_text"], Value::String(String::new()));
     }
 }
 
@@ -268,7 +272,9 @@ pub fn run() {
             get_network_strategy,
             record_update_error,
             check_for_update,
-            download_and_install_update,
+            download_update,
+            install_downloaded_update,
+            discard_downloaded_update,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Resized(size) => {

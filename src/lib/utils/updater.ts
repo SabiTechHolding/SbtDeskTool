@@ -12,6 +12,11 @@ export interface DialogRequest {
 }
 
 export type ShowDialog = (request: DialogRequest) => Promise<boolean>;
+export type UpdateProgress = {
+  phase: "idle" | "checking" | "downloading";
+  message: string;
+  version?: string;
+};
 
 interface UpdateMetadata {
   rid: number;
@@ -32,11 +37,11 @@ function errorMessage(error: unknown) {
 
 export async function checkForUpdates(
   force: boolean,
-  onProgress?: (message: string) => void,
+  onProgress?: (progress: UpdateProgress) => void,
   showDialog?: ShowDialog,
 ) {
   try {
-    onProgress?.("Checking...");
+    onProgress?.({ phase: "checking", message: "Checking..." });
     const metadata = await invoke<UpdateMetadata | null>("check_for_update", {
       timeout: 20000,
     });
@@ -45,8 +50,16 @@ export async function checkForUpdates(
       return;
     }
     if (!showDialog) return;
+    const displayVersion = formatAppVersion(metadata.version);
+    onProgress?.({
+      phase: "downloading",
+      message: `Downloading update ${displayVersion}...`,
+      version: displayVersion,
+    });
+    const bytesRid = await invoke<number>("download_update", { rid: metadata.rid });
+    onProgress?.({ phase: "idle", message: "" });
     const accepted = await showDialog({
-      title: `Update ${formatAppVersion(metadata.version)}`,
+      title: `Update ${displayVersion}`,
       message: "A new version is available. Download and install now?",
       details: metadata.body,
       confirmLabel: "Install",
@@ -54,10 +67,13 @@ export async function checkForUpdates(
       showCancel: true,
     });
     if (!accepted) {
+      await invoke("discard_downloaded_update", { bytesRid }).catch(() => undefined);
       return;
     }
-    onProgress?.("Downloading update...");
-    await invoke("download_and_install_update", { rid: metadata.rid });
+    await invoke("install_downloaded_update", {
+      updateRid: metadata.rid,
+      bytesRid,
+    });
     await invoke("restart_app");
   } catch (error) {
     const detail = `${UPDATE_ENDPOINT} - ${errorMessage(error)}`;
@@ -71,6 +87,6 @@ export async function checkForUpdates(
       });
     }
   } finally {
-    onProgress?.("");
+    onProgress?.({ phase: "idle", message: "" });
   }
 }

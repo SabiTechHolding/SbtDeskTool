@@ -8,6 +8,7 @@ export interface AppSettings {
   engine: string;
   src_lang: string;
   dest_lang: string;
+  tran_source_text: string;
   font_size_tran: number;
   font_size_diff: number;
   font_size_note: number;
@@ -49,6 +50,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   engine: "Google Translate",
   src_lang: "Auto Detect",
   dest_lang: "English",
+  tran_source_text: "",
   font_size_tran: 10,
   font_size_diff: 10,
   font_size_note: 10,

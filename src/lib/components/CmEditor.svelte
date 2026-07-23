@@ -7,6 +7,11 @@
   import type { ContextItem } from "./ContextMenu.svelte";
 
   type SearchFlags = { caseSensitive: boolean; wholeWord: boolean; regex: boolean };
+  export interface EditorScrollState {
+    topLine: number;
+    lineOffset: number;
+    horizontalRatio: number;
+  }
   type MonacoFindState = {
     readonly isRevealed: boolean;
     onFindReplaceStateChange: (listener: (event: { isRevealed?: boolean }) => void) => monaco.IDisposable;
@@ -30,6 +35,7 @@
     onContextMenu,
     onCursorChange,
     onWheel,
+    onScrollChange,
     onFindVisibilityChange,
   }: {
     value?: string;
@@ -45,6 +51,7 @@
     onContextMenu?: (e: MouseEvent) => void;
     onCursorChange?: (line: number, col: number, selLen: number, chars: number) => void;
     onWheel?: (e: WheelEvent) => void;
+    onScrollChange?: (state: EditorScrollState) => void;
     onFindVisibilityChange?: (visible: boolean) => void;
   } = $props();
 
@@ -57,6 +64,7 @@
   let themeObserver: MutationObserver | undefined;
   let disposeFindTooltip: (() => void) | undefined;
   let activeSearch: { query: string; flags: SearchFlags } | null = null;
+  let applyingSyncedScroll = false;
   let contextMenu = $state<{ items: ContextItem[]; x: number; y: number } | null>(null);
   const disposables: monaco.IDisposable[] = [];
   const WORD_SEPARATORS = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
@@ -140,6 +148,16 @@
 
   export function showFind() { void editor?.getAction("actions.find")?.run(); }
   export function hideFind() { void editor?.getAction("closeFindWidget")?.run(); }
+
+  export function syncScroll(state: EditorScrollState) {
+    if (!editor) return;
+    const maxHorizontal = Math.max(0, editor.getScrollWidth() - editor.getLayoutInfo().contentWidth);
+    const scrollTop = editor.getTopForLineNumber(state.topLine) + state.lineOffset;
+    const scrollLeft = maxHorizontal * state.horizontalRatio;
+    applyingSyncedScroll = true;
+    editor.setScrollPosition({ scrollTop, scrollLeft });
+    requestAnimationFrame(() => { applyingSyncedScroll = false; });
+  }
 
   function findController() {
     return editor?.getContribution("editor.contrib.findController") as unknown as MonacoFindController | null | undefined;
@@ -249,6 +267,18 @@
       editor.onDidChangeCursorPosition(emitCursor),
       editor.onDidChangeCursorSelection(emitCursor),
       editor.onDidFocusEditorText(emitCursor),
+      editor.onDidScrollChange((event) => {
+        if (applyingSyncedScroll || (!event.scrollTopChanged && !event.scrollLeftChanged)) return;
+        const topLine = editor?.getVisibleRanges()[0]?.startLineNumber ?? 1;
+        const scrollTop = editor?.getScrollTop() ?? 0;
+        const lineTop = editor?.getTopForLineNumber(topLine) ?? 0;
+        const maxHorizontal = Math.max(0, (editor?.getScrollWidth() ?? 0) - (editor?.getLayoutInfo().contentWidth ?? 0));
+        onScrollChange?.({
+          topLine,
+          lineOffset: Math.max(0, scrollTop - lineTop),
+          horizontalRatio: maxHorizontal > 0 ? (editor?.getScrollLeft() ?? 0) / maxHorizontal : 0,
+        });
+      }),
       editor.onKeyDown((event) => onKeyDown?.(event.browserEvent)),
     );
     container.addEventListener("contextmenu", (event) => {

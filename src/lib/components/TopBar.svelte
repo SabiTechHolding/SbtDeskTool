@@ -3,6 +3,7 @@
   import AboutDialog from "./AboutDialog.svelte";
   import HelpDialog from "./HelpDialog.svelte";
   import AppIcon from "./AppIcon.svelte";
+  import type { UpdateProgress } from "../utils/updater";
 
   type TabId = "tran" | "diff" | "note";
 
@@ -37,6 +38,7 @@
     onToggleOnTop,
     onSelectEffect,
     onCheckUpdate,
+    updateDownloading,
   }: {
     activeTab: TabId;
     compact: boolean;
@@ -46,12 +48,17 @@
     onToggleCompact: () => void;
     onToggleOnTop: () => void;
     onSelectEffect: (key: string) => void;
-    onCheckUpdate: (onProgress: (message: string) => void) => Promise<void>;
+    onCheckUpdate: (onProgress: (progress: UpdateProgress) => void) => Promise<void>;
+    updateDownloading: boolean;
   } = $props();
 
   let showAbout = $state(false);
   let showHelp = $state(false);
   let showEffectMenu = $state(false);
+
+  $effect(() => {
+    if (updateDownloading) showAbout = false;
+  });
 
   function handleThemeToggle() {
     themeStore.toggle();
