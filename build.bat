@@ -22,12 +22,12 @@ if not exist node_modules\ (
   if errorlevel 1 exit /b 1
 )
 
-set "CARGO_TARGET_DIR=%CD%\target\test-build"
-echo Building temporary SbtDeskTool EXE without changing the release version...
+set "CARGO_TARGET_DIR=%CD%\target"
+echo Building SbtDeskTool EXE for local testing without changing the release version...
 node scripts\build-exe.mjs
 if errorlevel 1 exit /b 1
 
 echo.
 echo Build completed:
-echo   App: target\test-build\release\sbt-desk-tool.exe
+echo   App: target\release\sbt-desk-tool.exe
 endlocal

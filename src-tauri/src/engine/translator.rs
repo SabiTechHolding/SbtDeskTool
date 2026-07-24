@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TranslateResult {
     pub translated: String,
     pub detected_lang: Option<String>,
@@ -9,6 +9,8 @@ pub struct TranslateResult {
 }
 
 const MAX_CHARS: usize = 700;
+const MAX_BATCH_CHARS: usize = 640;
+const MAX_BATCH_ITEMS: usize = 20;
 
 pub async fn translate(
     text: &str,
@@ -46,6 +48,109 @@ pub async fn translate(
         source: "Google Translate".into(),
         strategy: working_strategy,
     })
+}
+
+pub async fn translate_batch(
+    texts: &[String],
+    src: &str,
+    dest: &str,
+    strategy: u8,
+) -> Vec<Result<TranslateResult, String>> {
+    let mut results = vec![Err("Translation batch was not processed".into()); texts.len()];
+    let mut working_strategy = strategy;
+    let mut start = 0usize;
+    while start < texts.len() {
+        let end = batch_end(texts, start);
+        let payload = build_batch_payload(texts, start, end);
+        match translate(&payload, src, dest, working_strategy).await {
+            Ok(batch_result) => {
+                working_strategy = batch_result.strategy;
+                match parse_batch_result(&batch_result.translated, start, end) {
+                    Ok(values) => {
+                        for (offset, translated) in values.into_iter().enumerate() {
+                            results[start + offset] = Ok(TranslateResult {
+                                translated,
+                                detected_lang: batch_result.detected_lang.clone(),
+                                source: batch_result.source.clone(),
+                                strategy: batch_result.strategy,
+                            });
+                        }
+                    }
+                    Err(error) => {
+                        for result in &mut results[start..end] {
+                            *result = Err(error.clone());
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                for result in &mut results[start..end] {
+                    *result = Err(error.clone());
+                }
+            }
+        }
+        start = end;
+    }
+    results
+}
+
+fn batch_marker(index: usize, boundary: &str) -> String {
+    format!("__SBT_ITEM_{index:04}_{boundary}__")
+}
+
+fn batch_item_size(index: usize, text: &str) -> usize {
+    batch_marker(index, "BEGIN").chars().count()
+        + batch_marker(index, "END").chars().count()
+        + text.chars().count()
+        + 3
+}
+
+fn batch_end(texts: &[String], start: usize) -> usize {
+    let mut end = start;
+    let mut chars = 0usize;
+    while end < texts.len() && end - start < MAX_BATCH_ITEMS {
+        let next = batch_item_size(end, &texts[end]);
+        if end > start && chars + next > MAX_BATCH_CHARS {
+            break;
+        }
+        chars += next;
+        end += 1;
+    }
+    end.max(start + 1)
+}
+
+fn build_batch_payload(texts: &[String], start: usize, end: usize) -> String {
+    let mut payload = String::new();
+    for (index, text) in texts.iter().enumerate().take(end).skip(start) {
+        payload.push_str(&batch_marker(index, "BEGIN"));
+        payload.push('\n');
+        payload.push_str(text);
+        payload.push('\n');
+        payload.push_str(&batch_marker(index, "END"));
+        payload.push('\n');
+    }
+    payload
+}
+
+fn parse_batch_result(translated: &str, start: usize, end: usize) -> Result<Vec<String>, String> {
+    let mut values = Vec::with_capacity(end - start);
+    for index in start..end {
+        let begin = batch_marker(index, "BEGIN");
+        let finish = batch_marker(index, "END");
+        let after_begin = translated
+            .find(&begin)
+            .map(|position| position + begin.len())
+            .ok_or_else(|| format!("Google batch response is missing marker {begin}"))?;
+        let relative_end = translated[after_begin..]
+            .find(&finish)
+            .ok_or_else(|| format!("Google batch response is missing marker {finish}"))?;
+        values.push(
+            translated[after_begin..after_begin + relative_end]
+                .trim_matches(['\r', '\n'])
+                .to_string(),
+        );
+    }
+    Ok(values)
 }
 
 async fn translate_single(
@@ -191,6 +296,23 @@ mod tests {
         assert_eq!(split_text(text, 7).concat(), text);
     }
 
+    #[test]
+    fn builds_and_parses_google_batches_in_order() {
+        let texts = vec!["保存".to_string(), "削除".to_string()];
+        let payload = build_batch_payload(&texts, 0, 2);
+        let translated = payload.replace("保存", "Lưu").replace("削除", "Xóa");
+        assert_eq!(
+            parse_batch_result(&translated, 0, 2).unwrap(),
+            vec!["Lưu", "Xóa"]
+        );
+    }
+
+    #[test]
+    fn rejects_incomplete_google_batch_markers() {
+        let error = parse_batch_result("__SBT_ITEM_0000_BEGIN__\nLưu", 0, 1).unwrap_err();
+        assert!(error.contains("END"));
+    }
+
     #[tokio::test]
     #[ignore = "requires live Google Translate access"]
     async fn live_translation_smoke() {
@@ -203,5 +325,16 @@ mod tests {
             let result = translate("hello", "en", "vi", strategy).await.unwrap();
             assert!(!result.translated.trim().is_empty());
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live Google Translate access"]
+    async fn live_google_batch_smoke() {
+        let texts = vec!["保存してください".to_string(), "削除します".to_string()];
+        let results = translate_batch(&texts, "ja", "vi", 0).await;
+        assert_eq!(results.len(), texts.len());
+        assert!(results
+            .into_iter()
+            .all(|result| result.is_ok_and(|value| !value.translated.trim().is_empty())));
     }
 }

@@ -1,0 +1,23 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "sbt-desk-translation-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SYNC_WORKSPACE_ID": "sabitech",
+    "ALLOW_LEGACY_SYNC_TOKEN": "false"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sbt-desk-translation",
+      "database_id": "7b33a7c6-9827-4a70-a99b-dffd59855500",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

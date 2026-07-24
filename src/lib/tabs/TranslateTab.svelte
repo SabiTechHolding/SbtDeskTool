@@ -11,13 +11,14 @@
   import { onMount, onDestroy } from "svelte";
 
   let {
-    layout, compact, wordWrap, showWhitespace, fontSize, srcLang, destLang, onZoom, onCursorChange, onStatusUpdate, sashPos: initialSash = 50,
+    layout, compact, wordWrap, showWhitespace, fontSize, engine, srcLang, destLang, onZoom, onCursorChange, onStatusUpdate, sashPos: initialSash = 50,
   }: {
     layout: "horizontal" | "vertical";
     compact: boolean;
     wordWrap: boolean;
     showWhitespace: boolean;
     fontSize: number;
+    engine: string;
     srcLang: string;
     destLang: string;
     onZoom: (delta: number) => void;
@@ -68,7 +69,7 @@
 
   let languageSignature = "";
   $effect(() => {
-    const signature = `${srcLang}|${destLang}`;
+    const signature = `${engine}|${srcLang}|${destLang}`;
     if (srcLang !== "Auto Detect") {
       detectedLang = sourceText.trim() ? srcLang : "";
     } else if (languageSignature && !languageSignature.startsWith("Auto Detect|")) {
@@ -105,13 +106,14 @@
     startTime = performance.now();
     lastSrcLen = sourceText.length;
 
-    const signature = `${srcLang}|${destLang}`;
+    const signature = `${engine}|${srcLang}|${destLang}`;
     const isNewEngine = signature !== prevSignature;
 
     const units = splitUnits(requestText);
     const newUnits: TranUnit[] = [];
     let newCount = 0;
     let reusedCount = 0;
+    let memoryHits = 0;
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -159,8 +161,8 @@
         const src = srcLang === "Auto Detect" ? "auto" : mapLang(srcLang);
         const dest = mapLang(destLang);
 
-        const results = await invoke<Array<{ translated: string; detected_lang: string | null }>>(
-          "translate_units", { texts: toTranslate, src, dest }
+        const results = await invoke<Array<{ translated: string; detected_lang: string | null; source: string }>>(
+          "translate_units", { texts: toTranslate, src, dest, engine }
         );
 
         for (let j = 0; j < translateIndices.length; j++) {
@@ -174,10 +176,11 @@
           }
         }
         newCount = toTranslate.length;
+        memoryHits = results.filter((result) => result.source.startsWith("Translation Memory")).length;
       }
 
       // Reassemble
-      if (sourceText !== requestText || `${srcLang}|${destLang}` !== signature) {
+      if (sourceText !== requestText || `${engine}|${srcLang}|${destLang}` !== signature) {
         pendingTranslate = true;
         return;
       }
@@ -203,7 +206,7 @@
       const elapsed = performance.now() - startTime;
       onStatusUpdate?.(
         newCount > 0
-          ? `Translated: ${newCount} new, ${reusedCount} reused`
+          ? `Translated: ${newCount - memoryHits} AI, ${memoryHits} memory, ${reusedCount} reused`
           : `Translated: all ${reusedCount} reused`,
         "success",
         elapsed,
@@ -211,7 +214,7 @@
       );
 
     } catch (e) {
-      if (sourceText === requestText && `${srcLang}|${destLang}` === signature) {
+      if (sourceText === requestText && `${engine}|${srcLang}|${destLang}` === signature) {
         onStatusUpdate?.(`Error: ${e}`, "error", 0, 0);
       }
     } finally {

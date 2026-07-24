@@ -242,7 +242,7 @@ jobs:
           node scripts/release-notes.mjs >> $env:GITHUB_OUTPUT
           "SBTDESKTOOL_NOTES" >> $env:GITHUB_OUTPUT
 
-      - name: Build and upload signed packages to draft release
+      - name: Build and upload packages to draft release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -322,7 +322,7 @@ jobs:
             "${{ steps.windows_downloads.outputs.installer_path }}" `
             --clobber
 
-          # Keep the unpacked signed installer uploaded by tauri-action. The
+          # Keep the unpacked installer uploaded by tauri-action. The
           # updater manifest points to that exact asset; the ZIP is only the
           # safer user-facing browser download.
 

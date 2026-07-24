@@ -15,6 +15,7 @@ const overridePath = path.join(stageDirectory, "tauri.override.json");
 const cargoTargetDirectory = process.env.CARGO_TARGET_DIR
   ? path.resolve(projectRoot, process.env.CARGO_TARGET_DIR)
   : path.join(projectRoot, "target");
+process.env.CARGO_TARGET_DIR = cargoTargetDirectory;
 
 function run(command, args) {
   const result = spawnSync(command, args, {

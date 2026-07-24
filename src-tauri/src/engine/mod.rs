@@ -1,3 +1,6 @@
 pub mod diff;
 pub mod network;
+pub mod providers;
+pub mod translation_manager;
+pub mod translation_memory;
 pub mod translator;

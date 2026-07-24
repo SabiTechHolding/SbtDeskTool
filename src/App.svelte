@@ -14,6 +14,10 @@
   import DiffTab from "./lib/tabs/DiffTab.svelte";
   import NotesTab from "./lib/tabs/NotesTab.svelte";
   import AppDialog from "./lib/components/AppDialog.svelte";
+  import ProviderSettings from "./lib/components/ProviderSettings.svelte";
+  import FileTranslateDialog from "./lib/components/FileTranslateDialog.svelte";
+  import DictionarySettings from "./lib/components/DictionarySettings.svelte";
+  import TranslationMemorySettings from "./lib/components/TranslationMemorySettings.svelte";
   import { themeStore } from "./lib/stores/theme";
   import { loadSettings, saveSetting, type AppSettings } from "./lib/stores/settings";
   import { checkForUpdates, type DialogRequest, type UpdateProgress } from "./lib/utils/updater";
@@ -33,6 +37,7 @@
   let windowEffect = $state("blur");
   let onTop = $state(false);
   let engine = $state("Google Translate");
+  let translationEngines = $state(["Google Translate"]);
   let srcLang = $state("Auto Detect");
   let destLang = $state("English");
   let fontSizes = $state<Record<TabId, number>>({ tran: 10, diff: 10, note: 10 });
@@ -42,6 +47,10 @@
   let updateDownloadVersion = $state<string | null>(null);
   let compactNotes = $state<Array<{ id: number; title: string }>>([]);
   let compactNoteId = $state<number | null>(null);
+  let showProviderSettings = $state(false);
+  let showFileTranslator = $state(false);
+  let showDictionary = $state(false);
+  let showTranslationMemory = $state(false);
 
   // Status messages and focused panels belong to a tab. Hidden tabs can
   // continue async work without replacing the visible tab's status.
@@ -163,7 +172,8 @@
     srcLang = s.src_lang;
     destLang = s.dest_lang === "Auto Detect" ? "English" : s.dest_lang;
     if (s.dest_lang === "Auto Detect") saveSetting("dest_lang", "English");
-    engine = s.engine === "Google Translate" ? s.engine : "Google Translate";
+    engine = s.engine;
+    await refreshTranslationEngines();
     activeTab = tabs.includes(s.active_tab as TabId) ? s.active_tab as TabId : "diff";
     if (s.theme !== normalizedTheme) void saveSetting("theme", normalizedTheme);
     if (s.window_effect !== windowEffect) void saveSetting("window_effect", windowEffect);
@@ -350,6 +360,14 @@
     debouncedSaveSetting(field, val);
   }
 
+  async function refreshTranslationEngines() {
+    try {
+      const providers = await invoke<Array<{ name: string; enabled: boolean; model: string; baseUrl: string; requiresApiKey: boolean; hasApiKey: boolean; implemented: boolean }>>("get_translation_provider_settings");
+      translationEngines = providers.filter((provider) => provider.name === "Google Translate" || (provider.implemented && provider.enabled && (provider.name === "DeepL" || provider.model.trim()) && provider.baseUrl.trim() && (!provider.requiresApiKey || provider.hasApiKey || provider.name === "Local AI"))).map((provider) => provider.name);
+      if (!translationEngines.includes(engine)) engine = "Google Translate";
+    } catch { translationEngines = ["Google Translate"]; }
+  }
+
   function handleSwapLanguageState() {
     const swapped = swapLanguages(srcLang, destLang, translateTab?.getDetectedLanguage());
     if (!swapped) {
@@ -476,7 +494,7 @@
     />
     {#if activeTab === "tran"}
       <LangBar
-        {engine} {srcLang} {destLang} {layout}
+        {engine} engines={translationEngines} {srcLang} {destLang} {layout}
         wordWrap={wordWraps.tran}
         showWhitespace={showWhitespaces.tran}
         onSetLang={handleSetLang}
@@ -484,6 +502,10 @@
         onToggleLayout={handleToggleLayout}
         onToggleWrap={() => handleToggleWrap("tran")}
         onToggleWhitespace={() => handleToggleWhitespace("tran")}
+        onOpenProviders={() => showProviderSettings = true}
+        onOpenFileTranslator={() => showFileTranslator = true}
+        onOpenDictionary={() => showDictionary = true}
+        onOpenMemory={() => showTranslationMemory = true}
       />
     {/if}
   {:else}
@@ -536,7 +558,7 @@
         {compact}
         wordWrap={wordWraps.tran}
         showWhitespace={showWhitespaces.tran}
-        {srcLang} {destLang}
+        {engine} {srcLang} {destLang}
         fontSize={fontSizes.tran}
         sashPos={sashPosTran}
         onZoom={(d) => handleZoom("tran", d)}
@@ -627,6 +649,21 @@
     onConfirm={() => closeDialog(true)}
     onCancel={() => closeDialog(false)}
   />
+{/if}
+
+{#if showProviderSettings}
+  <ProviderSettings onclose={() => { showProviderSettings = false; void refreshTranslationEngines(); }} />
+{/if}
+
+{#if showFileTranslator}
+  <FileTranslateDialog engines={translationEngines} defaultEngine={engine} onclose={() => showFileTranslator = false} />
+{/if}
+
+{#if showDictionary}
+  <DictionarySettings onclose={() => showDictionary = false} />
+{/if}
+{#if showTranslationMemory}
+  <TranslationMemorySettings onclose={() => showTranslationMemory = false} />
 {/if}
 
 <style>

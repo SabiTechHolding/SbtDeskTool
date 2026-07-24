@@ -8,6 +8,7 @@
     "clipboard-manager:default",
     "global-shortcut:default",
     "fs:default",
+    "dialog:default",
     "updater:default",
     {
       "identifier": "fs:allow-write-text-file",

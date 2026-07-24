@@ -3,10 +3,11 @@
   import AppIcon from "./AppIcon.svelte";
 
   let {
-    engine, srcLang, destLang, layout, wordWrap, showWhitespace,
-    onSetLang, onSwapText, onToggleLayout, onToggleWrap, onToggleWhitespace,
+    engine, engines, srcLang, destLang, layout, wordWrap, showWhitespace,
+    onSetLang, onSwapText, onToggleLayout, onToggleWrap, onToggleWhitespace, onOpenProviders, onOpenFileTranslator, onOpenDictionary, onOpenMemory,
   }: {
     engine: string;
+    engines: string[];
     srcLang: string;
     destLang: string;
     layout: "horizontal" | "vertical";
@@ -17,9 +18,12 @@
     onToggleLayout: () => void;
     onToggleWrap: () => void;
     onToggleWhitespace: () => void;
+    onOpenProviders: () => void;
+    onOpenFileTranslator: () => void;
+    onOpenDictionary: () => void;
+    onOpenMemory: () => void;
   } = $props();
 
-  const ENGINES = ["Google Translate"];
 
   let showEngineMenu = $state(false);
   let showSrcMenu = $state(false);
@@ -79,7 +83,7 @@
             placeholder="Filter..."
             bind:value={engineFilter}
           />
-          {#each filterEngineNames(ENGINES, engineFilter) as item}
+          {#each filterEngineNames(engines, engineFilter) as item}
             <button
               class="dropdown-item"
               class:active={item === engine}
@@ -155,6 +159,11 @@
       <AppIcon name="layout" size={14} /><span class="btn-label">{layout === "horizontal" ? "Horizontal" : "Vertical"}</span>
     </button>
   </div>
+
+  <button class="control-btn" onclick={onOpenProviders} title="Configure translation providers">Providers</button>
+  <button class="control-btn" onclick={onOpenFileTranslator} title="Translate an Excel workbook">Excel</button>
+  <button class="control-btn" onclick={onOpenDictionary} title="Manage approved translations">Dictionary</button>
+  <button class="control-btn" onclick={onOpenMemory} title="Manage saved translations">Memory</button>
 
   <span class="bar-spacer"></span>
   <div class="control-group" aria-label="Translate editor display">

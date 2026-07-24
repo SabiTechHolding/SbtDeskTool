@@ -76,10 +76,31 @@ Windows keeps one convenience script for producing a temporary test executable. 
 Outputs:
 
 ```text
-target\test-build\release\sbt-desk-tool.exe
+target\release\sbt-desk-tool.exe
 ```
 
-The Windows script uses a dedicated directory, so an older running copy of the application cannot lock the new executable. Installers and release versions are produced only by GitHub Actions.
+All local Rust artifacts use the repository-level `target` directory;
+`src-tauri/target` is obsolete. Close a running copy before rebuilding because
+Windows can lock `target\release\sbt-desk-tool.exe`.
+
+To build the current-version NSIS installer locally without changing the
+version:
+
+```powershell
+npm run package
+```
+
+The installer is written to:
+
+```text
+target\release\bundle\nsis\SbtDeskTool_<version>_x64-setup.exe
+```
+
+It installs `sbt-desk-tool.exe`, the internal
+`provider_credential.exe` credential helper, and `uninstall.exe`. The
+`set_sync_credential.exe` utility remains a deployment/provisioning helper in
+`target\release` and is not installed for end users. Release versions are
+still generated only by GitHub Actions.
 
 The same package command works natively on macOS:
 
@@ -107,7 +128,9 @@ https://github.com/SabiTechHolding/SbtDeskTool/releases/latest/download/latest.j
 
 Configure `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as repository secrets before publishing. Private keys and `.env` must not be committed.
 
-The macOS package uses an ad-hoc signature by default so Apple Silicon does not treat the downloaded application as damaged. For public distribution without Gatekeeper warnings, also configure the Apple certificate and notarization secrets documented in `.env.example`. Windows Authenticode signing likewise requires a separate trusted code-signing certificate; updater signatures do not replace operating-system code signing.
+The macOS package uses an ad-hoc signature by default so Apple Silicon does not treat the downloaded application as damaged. For public distribution without Gatekeeper warnings, also configure the Apple certificate and notarization secrets documented in `.env.example`.
+
+Windows updater signatures and Authenticode serve different purposes. The release workflow always requires `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` for updater artifacts. Windows Authenticode signing is currently disabled, so the Windows executable and NSIS installer are unsigned and intended for internal testing. Re-enable Authenticode in the workflow only after a trusted code-signing certificate is purchased.
 
 ## Project structure
 

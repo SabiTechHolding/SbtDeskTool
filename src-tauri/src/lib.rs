@@ -9,8 +9,27 @@ use commands::{
     diff::compute_diff,
     network::{get_network_strategy, record_update_error},
     notes::{delete_note, flush_notes, list_notes, reorder_notes, save_note},
+    providers::{
+        clear_translation_provider_key, get_translation_fallback, get_translation_policy,
+        get_translation_provider_settings, save_translation_fallback, save_translation_policy,
+        save_translation_provider_settings, test_translation_provider,
+    },
     settings::{get_settings, save_setting, save_settings_flush, SettingsState},
-    translate::{translate, translate_units},
+    translate::{get_translation_providers, translate, translate_units},
+    translate_file::{
+        cancel_excel_translation, has_excel_translation_checkpoint, inspect_excel_file,
+        open_excel_output_location, translate_excel_file,
+    },
+    translation_data::{
+        delete_dictionary_entry, delete_translation_memory_entry, export_dictionary_csv,
+        export_translation_memory_csv, get_translation_sync_status, import_dictionary_csv,
+        import_translation_memory_csv, list_dictionary_entries, list_translation_memory_entries,
+        save_dictionary_entry, update_translation_memory_status,
+    },
+    translation_sync::{
+        get_translation_sync_settings, perform_translation_sync, save_translation_sync_settings,
+        test_translation_sync_connection,
+    },
     updater::{
         check_for_update, discard_downloaded_update, download_update, install_downloaded_update,
     },
@@ -249,6 +268,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState(Mutex::new(settings)))
         .invoke_handler(tauri::generate_handler![
@@ -257,6 +277,35 @@ pub fn run() {
             save_settings_flush,
             translate,
             translate_units,
+            get_translation_providers,
+            translate_excel_file,
+            cancel_excel_translation,
+            inspect_excel_file,
+            has_excel_translation_checkpoint,
+            open_excel_output_location,
+            list_dictionary_entries,
+            save_dictionary_entry,
+            delete_dictionary_entry,
+            export_dictionary_csv,
+            import_dictionary_csv,
+            get_translation_sync_status,
+            list_translation_memory_entries,
+            delete_translation_memory_entry,
+            update_translation_memory_status,
+            import_translation_memory_csv,
+            export_translation_memory_csv,
+            get_translation_sync_settings,
+            save_translation_sync_settings,
+            test_translation_sync_connection,
+            perform_translation_sync,
+            get_translation_provider_settings,
+            get_translation_fallback,
+            save_translation_fallback,
+            get_translation_policy,
+            save_translation_policy,
+            save_translation_provider_settings,
+            clear_translation_provider_key,
+            test_translation_provider,
             compute_diff,
             list_notes,
             save_note,
