@@ -2,6 +2,7 @@
 
 ## v1.26.7.27-51 — Translation Platform and Enterprise Administration
 
+- Fixed automatic updates on managed networks by publishing public GitHub Release download URLs instead of GitHub Assets API URLs.
 - Added configurable Google, Gemini, OpenAI, Claude, DeepL and Local AI providers with secure credential storage, connection tests, fallback ordering, batching, concurrency, retry and timeout policies.
 - Added Excel workbook translation with sheet, column and range exclusions, duplicate-text reuse, resumable checkpoints, per-cell error reporting, detailed logs and safe output files.
 - Added Dictionary and Translation Memory management with in-sentence terminology protection, CSV import/export, review states, cache TTL controls and optional automatic TM saving.

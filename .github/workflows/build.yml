@@ -378,7 +378,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.release-metadata.outputs.tag }}
+          UPDATER_MANIFEST_OUTPUT: .release/latest.json
         run: node scripts/validate-updater-release.mjs
+
+      - name: Replace API URLs with public release download URLs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.release-metadata.outputs.tag }}" \
+            .release/latest.json \
+            --clobber
 
       - name: Publish draft after every platform succeeds
         env:

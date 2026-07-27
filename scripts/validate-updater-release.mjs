@@ -1,6 +1,10 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
 const repository = process.env.GITHUB_REPOSITORY;
 const tag = process.env.RELEASE_TAG;
 const token = process.env.GH_TOKEN;
+const outputPath = process.env.UPDATER_MANIFEST_OUTPUT;
 
 if (!repository || !tag) {
   throw new Error("GITHUB_REPOSITORY and RELEASE_TAG are required");
@@ -73,13 +77,11 @@ if (!manifest.version || !manifest.platforms) {
 
 for (const [platform, update] of Object.entries(manifest.platforms)) {
   const assetId = String(update.url ?? "").match(/\/releases\/assets\/(\d+)(?:$|[?#])/)?.[1];
-  if (!assetId) {
-    throw new Error(`${platform}: updater URL is not a GitHub release asset URL`);
-  }
-
-  const packageAsset = assetsById.get(assetId);
+  const packageAsset = assetId
+    ? assetsById.get(assetId)
+    : release.assets.find((asset) => asset.browser_download_url === update.url);
   if (!packageAsset) {
-    throw new Error(`${platform}: updater references missing asset id ${assetId}`);
+    throw new Error(`${platform}: updater URL does not reference an asset in release ${tag}`);
   }
 
   const signatureAsset = assetsByName.get(`${packageAsset.name}.sig`);
@@ -91,6 +93,17 @@ for (const [platform, update] of Object.entries(manifest.platforms)) {
   if (signature !== update.signature) {
     throw new Error(`${platform}: latest.json signature does not match ${signatureAsset.name}`);
   }
+
+  // tauri-action emits GitHub API asset URLs. Public desktop clients should
+  // use the stable browser URL instead: api.github.com is commonly blocked by
+  // corporate proxies and requires API-specific response handling.
+  update.url = packageAsset.browser_download_url;
+}
+
+if (outputPath) {
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  console.log(`Wrote public updater manifest to ${outputPath}.`);
 }
 
 console.log(
