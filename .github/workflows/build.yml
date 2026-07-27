@@ -242,6 +242,30 @@ jobs:
           node scripts/release-notes.mjs >> $env:GITHUB_OUTPUT
           "SBTDESKTOOL_NOTES" >> $env:GITHUB_OUTPUT
 
+      - name: Build macOS universal helper binaries
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          helpers=(provider_credential set_sync_credential)
+          targets=(aarch64-apple-darwin x86_64-apple-darwin)
+
+          for target in "${targets[@]}"; do
+            cargo build --locked --release --target "$target" \
+              --bin provider_credential \
+              --bin set_sync_credential
+          done
+
+          universal_dir="target/universal-apple-darwin/release"
+          mkdir -p "$universal_dir"
+          for helper in "${helpers[@]}"; do
+            lipo -create \
+              "target/aarch64-apple-darwin/release/$helper" \
+              "target/x86_64-apple-darwin/release/$helper" \
+              -output "$universal_dir/$helper"
+            chmod +x "$universal_dir/$helper"
+            lipo -info "$universal_dir/$helper"
+          done
+
       - name: Build and upload packages to draft release
         uses: tauri-apps/tauri-action@v1
         env:
