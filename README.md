@@ -118,6 +118,8 @@ Packages must be built on their native operating system. GitHub Actions verifies
 
 ## Version and releases
 
+Every feature-sized or otherwise significant commit must update the first version entry in `CHANGELOG.md`. GitHub Actions uses that entry as the published release notes.
+
 Release versions use `MAJOR.YY.M.D-BUILD`, for example `1.26.7.21-38`. `MAJOR` is configured manually in `version.json` and can be changed for a major product release. Local test builds retain the current version. GitHub Actions chooses the greater of the next tracked `BUILD` and its increasing workflow run number, so release builds advance without being affected by local testing. Build tooling stores the SemVer-compatible form `MAJOR.YY.M-D.BUILD` internally while the application displays the release form.
 
 The updater reads signed release metadata from:

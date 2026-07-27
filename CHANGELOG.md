@@ -1,5 +1,15 @@
 # SbtDeskTool changelog
 
+## v1.26.7.27-51 — Translation Platform and Enterprise Administration
+
+- Added configurable Google, Gemini, OpenAI, Claude, DeepL and Local AI providers with secure credential storage, connection tests, fallback ordering, batching, concurrency, retry and timeout policies.
+- Added Excel workbook translation with sheet, column and range exclusions, duplicate-text reuse, resumable checkpoints, per-cell error reporting, detailed logs and safe output files.
+- Added Dictionary and Translation Memory management with in-sentence terminology protection, CSV import/export, review states, cache TTL controls and optional automatic TM saving.
+- Added enterprise push/pull synchronization through Cloudflare Workers and D1 with per-device credentials, workspace isolation, cursor handling, retries, tombstones and optimistic conflict detection.
+- Added the Cloudflare Access-protected Web Admin for members, roles, Dictionary/TM review, device credentials, conflicts and audit history.
+- Standardized local and release artifacts under `target`, added versioned Windows portable/installer downloads, and fixed universal macOS packaging for the credential helpers.
+- Windows Authenticode remains disabled until a trusted code-signing certificate is purchased; updater artifacts continue to use Tauri signatures.
+
 ## v1.26.7.23 - Improvement and Bug Fixes
 
 - Refreshed the app icon for clearer visibility across Windows.
