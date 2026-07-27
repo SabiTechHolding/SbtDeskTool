@@ -250,7 +250,7 @@ jobs:
           targets=(aarch64-apple-darwin x86_64-apple-darwin)
 
           for target in "${targets[@]}"; do
-            cargo build --locked --release --target "$target" \
+            cargo build --locked --release --manifest-path src-tauri/Cargo.toml --target "$target" \
               --bin provider_credential \
               --bin set_sync_credential
           done
