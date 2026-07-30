@@ -63,6 +63,14 @@
     <circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.4 2.4 0 1 1 3.6 2.1c-.9.5-1.3 1.1-1.3 2.1M12 17h.01"/>
   {:else if name === "info"}
     <circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>
+  {:else if name === "providers"}
+    <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 11V3M1 14h6M9 8h6M17 16h6"/>
+  {:else if name === "excel"}
+    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>
+  {:else if name === "dictionary"}
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h6M8 11h4"/>
+  {:else if name === "memory"}
+    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
   {/if}
 </svg>
 

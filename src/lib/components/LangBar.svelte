@@ -160,10 +160,20 @@
     </button>
   </div>
 
-  <button class="control-btn" onclick={onOpenProviders} title="Configure translation providers">Providers</button>
-  <button class="control-btn" onclick={onOpenFileTranslator} title="Translate an Excel workbook">Excel</button>
-  <button class="control-btn" onclick={onOpenDictionary} title="Manage approved translations">Dictionary</button>
-  <button class="control-btn" onclick={onOpenMemory} title="Manage saved translations">Memory</button>
+  <div class="control-group" aria-label="Translation tools and settings">
+    <button class="control-btn" onclick={onOpenProviders} title="Configure translation providers">
+      <AppIcon name="providers" size={14} /><span class="btn-label">Providers</span>
+    </button>
+    <button class="control-btn" onclick={onOpenFileTranslator} title="Translate an Excel workbook">
+      <AppIcon name="excel" size={14} /><span class="btn-label">Excel</span>
+    </button>
+    <button class="control-btn" onclick={onOpenDictionary} title="Manage approved translations">
+      <AppIcon name="dictionary" size={14} /><span class="btn-label">Dictionary</span>
+    </button>
+    <button class="control-btn" onclick={onOpenMemory} title="Manage saved translations">
+      <AppIcon name="memory" size={14} /><span class="btn-label">Memory</span>
+    </button>
+  </div>
 
   <span class="bar-spacer"></span>
   <div class="control-group" aria-label="Translate editor display">

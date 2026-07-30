@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { marked } from "marked";
   import CmEditor from "../components/CmEditor.svelte";
   import DeleteConfirm from "../components/DeleteConfirm.svelte";
@@ -56,6 +57,8 @@
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let noteEditor = $state<CmEditor>();
+  let unlistenNotesUpdated: UnlistenFn | undefined;
+
   $effect(() => {
     onNotesChange?.(notes.map((note) => ({ id: note.id, title: note.title })), currentNoteId);
   });
@@ -77,6 +80,75 @@
     detail?.tasks?.push(task);
   }
 
+  function mergeText(local: string, remote: string): string {
+    if (local === remote) return local;
+    if (!local.trim()) return remote;
+    if (!remote.trim()) return local;
+    if (remote.includes(local)) return remote;
+    if (local.includes(remote)) return local;
+
+    const linesLocal = local.split("\n");
+    const linesRemote = remote.split("\n");
+    const merged: string[] = [];
+    let idxL = 0;
+    let idxR = 0;
+
+    while (idxL < linesLocal.length || idxR < linesRemote.length) {
+      if (idxL < linesLocal.length && idxR < linesRemote.length) {
+        if (linesLocal[idxL] === linesRemote[idxR]) {
+          merged.push(linesLocal[idxL]);
+          idxL++;
+          idxR++;
+        } else {
+          const inRemotePos = linesRemote.slice(idxR).indexOf(linesLocal[idxL]);
+          const inLocalPos = linesLocal.slice(idxL).indexOf(linesRemote[idxR]);
+          if (inLocalPos !== -1 && (inRemotePos === -1 || inLocalPos <= inRemotePos)) {
+            merged.push(linesLocal[idxL]);
+            idxL++;
+          } else if (inRemotePos !== -1) {
+            merged.push(linesRemote[idxR]);
+            idxR++;
+          } else {
+            merged.push(linesLocal[idxL]);
+            merged.push(linesRemote[idxR]);
+            idxL++;
+            idxR++;
+          }
+        }
+      } else if (idxL < linesLocal.length) {
+        merged.push(linesLocal[idxL]);
+        idxL++;
+      } else {
+        merged.push(linesRemote[idxR]);
+        idxR++;
+      }
+    }
+    return merged.join("\n");
+  }
+
+  async function refreshNotesFromDisk() {
+    try {
+      const updatedNotes = await invoke<Note[]>("list_notes");
+      notes = updatedNotes;
+      if (currentNoteId !== null) {
+        const updated = updatedNotes.find((n) => n.id === currentNoteId);
+        if (updated) {
+          if (!isDirty) {
+            body = updated.body;
+            title = updated.title;
+            updatePreview();
+          } else {
+            const merged = mergeText(body, updated.body);
+            if (merged !== body) {
+              body = merged;
+              updatePreview();
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
   onMount(async () => {
     document.addEventListener("note:setContent", handleDropEvent);
     document.addEventListener("app:flush", handleAppFlush);
@@ -88,11 +160,17 @@
     if (notes.length > 0) {
       selectNote(notes[0].id);
     }
+    try {
+      unlistenNotesUpdated = await listen("notes-updated", () => {
+        void refreshNotesFromDisk();
+      });
+    } catch {}
   });
 
   onDestroy(() => {
     document.removeEventListener("note:setContent", handleDropEvent);
     document.removeEventListener("app:flush", handleAppFlush);
+    unlistenNotesUpdated?.();
     if (debounceTimer) clearTimeout(debounceTimer);
     removeNotePointerListeners();
     handleAppFlush();

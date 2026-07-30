@@ -198,7 +198,6 @@
     };
 
     try { await invoke("set_window_effect", { effect: windowEffect }); } catch {}
-    try { await invoke("set_always_on_top", { onTop: s.always_on_top }); } catch {}
     try {
       await invoke("set_window_size", {
         width: s.compact_mode ? s.compact_width : s.window_width,
@@ -206,6 +205,7 @@
         compact: s.compact_mode,
       });
     } catch {}
+    try { await invoke("set_always_on_top", { onTop: s.always_on_top }); } catch {}
 
     const splashRemaining = 420 - (performance.now() - splashStarted);
     if (splashRemaining > 0) await new Promise((resolve) => setTimeout(resolve, splashRemaining));
@@ -255,7 +255,22 @@
         setTabStatus(activeTab, `Cannot read dropped file: ${error}`, "error");
       }
     });
+    const handleSwitchTabEvent = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      const tabOrder: TabId[] = ["tran", "diff", "note"];
+      const currentIndex = tabOrder.indexOf(activeTab);
+      if (currentIndex === -1) return;
+      if (detail === "prev") {
+        const prevIndex = (currentIndex - 1 + tabOrder.length) % tabOrder.length;
+        handleTabSwitch(tabOrder[prevIndex]);
+      } else if (detail === "next") {
+        const nextIndex = (currentIndex + 1) % tabOrder.length;
+        handleTabSwitch(tabOrder[nextIndex]);
+      }
+    };
+
     document.addEventListener("keydown", handleGlobalFindShortcut, true);
+    document.addEventListener("app:switchTab", handleSwitchTabEvent);
     })();
     return () => {
       unlistenClose?.();
@@ -265,6 +280,7 @@
       unlistenDragOver?.();
       unlistenDragLeave?.();
       document.removeEventListener("keydown", handleGlobalFindShortcut, true);
+      document.removeEventListener("app:switchTab", handleSwitchTabEvent);
       if (updateTimer) clearTimeout(updateTimer);
     };
   });

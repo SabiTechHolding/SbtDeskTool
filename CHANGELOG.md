@@ -1,6 +1,13 @@
 # SbtDeskTool changelog
 
-## v1.26.7.27-51 — Translation Platform and Enterprise Administration
+## v1.26.7.30 — Multi-window Notes Sync and Notepad++ Shortcuts
+
+- Fixed data loss when editing Notes across multiple windows by automatically merging latest content without overwriting changes.
+- Fixed Compact mode Always-on-Top feature so it takes effect immediately upon startup.
+- Updated Notepad++ keyboard shortcut presets for the text editor (full screen, code folding, line duplication, column selection, tab switching, etc.).
+- Added icons to Translate tab toolbar controls (Providers, Excel, Dictionary, Memory) and enabled responsive collapse to icon buttons when narrowing window width.
+
+## v1.26.7.27 — Translation Platform and Enterprise Administration
 
 - Fixed automatic updates on managed networks by publishing public GitHub Release download URLs instead of GitHub Assets API URLs.
 - Added configurable Google, Gemini, OpenAI, Claude, DeepL and Local AI providers with secure credential storage, connection tests, fallback ordering, batching, concurrency, retry and timeout policies.

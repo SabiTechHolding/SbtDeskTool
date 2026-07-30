@@ -79,8 +79,9 @@ pub async fn toggle_compact(
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
-    let (width, height, minimum_width) = {
+    let (width, height, minimum_width, always_on_top) = {
         let map = state.0.lock().map_err(|e| e.to_string())?;
+        let on_top = map.get("always_on_top").and_then(|v| v.as_bool()).unwrap_or(false);
         if compact {
             let width = map
                 .get("compact_width")
@@ -95,7 +96,7 @@ pub async fn toggle_compact(
                 .get(height_key)
                 .and_then(|v| v.as_u64())
                 .unwrap_or(if tab == "diff" { 280 } else { 240 }) as u32;
-            (width, height, 280)
+            (width, height, 280, on_top)
         } else {
             let width = map
                 .get("window_width")
@@ -105,18 +106,23 @@ pub async fn toggle_compact(
                 .get("window_height")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(640) as u32;
-            (width, height, 340)
+            (width, height, 340, on_top)
         }
     };
     window
         .set_min_size(Some(tauri::LogicalSize::new(minimum_width as f64, 120.0)))
         .map_err(|e| e.to_string())?;
-    resize_centered_in_work_area(&window, width.max(minimum_width), height.max(120)).await
+    let res = resize_centered_in_work_area(&window, width.max(minimum_width), height.max(120)).await;
+    if always_on_top {
+        let _ = window.set_always_on_top(true);
+    }
+    res
 }
 
 #[tauri::command]
 pub async fn set_window_size(
     app: tauri::AppHandle,
+    state: tauri::State<'_, crate::commands::settings::SettingsState>,
     width: u32,
     height: u32,
     compact: bool,
@@ -124,6 +130,10 @@ pub async fn set_window_size(
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
+    let always_on_top = {
+        let map = state.0.lock().map_err(|e| e.to_string())?;
+        map.get("always_on_top").and_then(|v| v.as_bool()).unwrap_or(false)
+    };
     let (minimum_width, minimum_height) = if compact { (280, 120) } else { (340, 120) };
     window
         .set_min_size(Some(tauri::LogicalSize::new(
@@ -131,12 +141,16 @@ pub async fn set_window_size(
             minimum_height as f64,
         )))
         .map_err(|e| e.to_string())?;
-    resize_centered_in_work_area(
+    let res = resize_centered_in_work_area(
         &window,
         width.max(minimum_width),
         height.max(minimum_height),
     )
-    .await
+    .await;
+    if always_on_top {
+        let _ = window.set_always_on_top(true);
+    }
+    res
 }
 
 /// Available window effects:

@@ -89,19 +89,103 @@ fn reorder_notes_by_ids(notes: Vec<Note>, ids: &[i64]) -> Vec<Note> {
     reordered
 }
 
+pub fn merge_note_bodies(existing: &str, incoming: &str) -> String {
+    if existing == incoming {
+        return incoming.to_string();
+    }
+    if existing.trim().is_empty() {
+        return incoming.to_string();
+    }
+    if incoming.trim().is_empty() {
+        return existing.to_string();
+    }
+
+    if existing.contains(incoming) {
+        return existing.to_string();
+    }
+    if incoming.contains(existing) {
+        return incoming.to_string();
+    }
+
+    let lines_existing: Vec<&str> = existing.lines().collect();
+    let lines_incoming: Vec<&str> = incoming.lines().collect();
+
+    let mut merged: Vec<String> = Vec::new();
+    let mut existing_idx = 0;
+    let mut incoming_idx = 0;
+
+    while existing_idx < lines_existing.len() || incoming_idx < lines_incoming.len() {
+        if existing_idx < lines_existing.len() && incoming_idx < lines_incoming.len() {
+            if lines_existing[existing_idx] == lines_incoming[incoming_idx] {
+                merged.push(lines_existing[existing_idx].to_string());
+                existing_idx += 1;
+                incoming_idx += 1;
+            } else {
+                let in_existing_pos = lines_existing[existing_idx..]
+                    .iter()
+                    .position(|&l| l == lines_incoming[incoming_idx]);
+                let in_incoming_pos = lines_incoming[incoming_idx..]
+                    .iter()
+                    .position(|&l| l == lines_existing[existing_idx]);
+
+                match (in_existing_pos, in_incoming_pos) {
+                    (Some(pos_e), Some(pos_i)) => {
+                        if pos_i <= pos_e {
+                            merged.push(lines_incoming[incoming_idx].to_string());
+                            incoming_idx += 1;
+                        } else {
+                            merged.push(lines_existing[existing_idx].to_string());
+                            existing_idx += 1;
+                        }
+                    }
+                    (None, Some(_)) => {
+                        merged.push(lines_existing[existing_idx].to_string());
+                        existing_idx += 1;
+                    }
+                    (Some(_), None) => {
+                        merged.push(lines_incoming[incoming_idx].to_string());
+                        incoming_idx += 1;
+                    }
+                    (None, None) => {
+                        merged.push(lines_existing[existing_idx].to_string());
+                        merged.push(lines_incoming[incoming_idx].to_string());
+                        existing_idx += 1;
+                        incoming_idx += 1;
+                    }
+                }
+            }
+        } else if existing_idx < lines_existing.len() {
+            merged.push(lines_existing[existing_idx].to_string());
+            existing_idx += 1;
+        } else {
+            merged.push(lines_incoming[incoming_idx].to_string());
+            incoming_idx += 1;
+        }
+    }
+
+    merged.join("\n")
+}
+
 #[tauri::command]
 pub fn list_notes() -> Result<Vec<Note>, String> {
     read_notes(&crate::get_data_dir().join("notes.json"))
 }
 
 #[tauri::command]
-pub fn save_note(note: Note) -> Result<(), String> {
+pub fn save_note(app: tauri::AppHandle, note: Note) -> Result<(), String> {
+    use tauri::Emitter;
     let path = crate::get_data_dir().join("notes.json");
     let mut notes = read_notes(&path)?;
 
     if let Some(existing) = notes.iter_mut().find(|entry| entry.id == note.id) {
-        existing.title = note.title;
-        existing.body = note.body;
+        let merged_body = merge_note_bodies(&existing.body, &note.body);
+        let merged_title = if note.title.trim().is_empty() || note.title == "Untitled" {
+            existing.title.clone()
+        } else {
+            note.title.clone()
+        };
+        existing.title = merged_title;
+        existing.body = merged_body;
         existing.updated_at = now_iso();
     } else {
         let mut new_note = note;
@@ -109,23 +193,31 @@ pub fn save_note(note: Note) -> Result<(), String> {
         new_note.updated_at = now_iso();
         notes.push(new_note);
     }
-    write_notes(&path, &notes)
+    write_notes(&path, &notes)?;
+    let _ = app.emit("notes-updated", ());
+    Ok(())
 }
 
 #[tauri::command]
-pub fn delete_note(id: i64) -> Result<(), String> {
+pub fn delete_note(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    use tauri::Emitter;
     let path = crate::get_data_dir().join("notes.json");
     let mut notes = read_notes(&path)?;
     notes.retain(|note| note.id != id);
-    write_notes(&path, &notes)
+    write_notes(&path, &notes)?;
+    let _ = app.emit("notes-updated", ());
+    Ok(())
 }
 
 #[tauri::command]
-pub fn reorder_notes(ids: Vec<i64>) -> Result<(), String> {
+pub fn reorder_notes(app: tauri::AppHandle, ids: Vec<i64>) -> Result<(), String> {
+    use tauri::Emitter;
     let path = crate::get_data_dir().join("notes.json");
     let notes = read_notes(&path)?;
     let notes = reorder_notes_by_ids(notes, &ids);
-    write_notes(&path, &notes)
+    write_notes(&path, &notes)?;
+    let _ = app.emit("notes-updated", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -163,5 +255,12 @@ mod tests {
         let ids: Vec<i64> = reordered.into_iter().map(|entry| entry.id).collect();
 
         assert_eq!(ids, vec![3, 1, 2]);
+    }
+
+    #[test]
+    fn merges_note_bodies_without_losing_lines() {
+        assert_eq!(merge_note_bodies("hello\nworld", "hello\nworld"), "hello\nworld");
+        assert_eq!(merge_note_bodies("hello", "hello\nworld"), "hello\nworld");
+        assert_eq!(merge_note_bodies("line1\nlineA", "line1\nlineB"), "line1\nlineA\nlineB");
     }
 }
