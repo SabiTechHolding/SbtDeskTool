@@ -81,7 +81,10 @@ pub async fn toggle_compact(
         .ok_or("Main window not found")?;
     let (width, height, minimum_width, always_on_top) = {
         let map = state.0.lock().map_err(|e| e.to_string())?;
-        let on_top = map.get("always_on_top").and_then(|v| v.as_bool()).unwrap_or(false);
+        let on_top = map
+            .get("always_on_top")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if compact {
             let width = map
                 .get("compact_width")
@@ -112,7 +115,8 @@ pub async fn toggle_compact(
     window
         .set_min_size(Some(tauri::LogicalSize::new(minimum_width as f64, 120.0)))
         .map_err(|e| e.to_string())?;
-    let res = resize_centered_in_work_area(&window, width.max(minimum_width), height.max(120)).await;
+    let res =
+        resize_centered_in_work_area(&window, width.max(minimum_width), height.max(120)).await;
     if always_on_top {
         let _ = window.set_always_on_top(true);
     }
@@ -132,7 +136,9 @@ pub async fn set_window_size(
         .ok_or("Main window not found")?;
     let always_on_top = {
         let map = state.0.lock().map_err(|e| e.to_string())?;
-        map.get("always_on_top").and_then(|v| v.as_bool()).unwrap_or(false)
+        map.get("always_on_top")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     };
     let (minimum_width, minimum_height) = if compact { (280, 120) } else { (340, 120) };
     window
