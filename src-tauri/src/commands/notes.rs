@@ -259,8 +259,14 @@ mod tests {
 
     #[test]
     fn merges_note_bodies_without_losing_lines() {
-        assert_eq!(merge_note_bodies("hello\nworld", "hello\nworld"), "hello\nworld");
+        assert_eq!(
+            merge_note_bodies("hello\nworld", "hello\nworld"),
+            "hello\nworld"
+        );
         assert_eq!(merge_note_bodies("hello", "hello\nworld"), "hello\nworld");
-        assert_eq!(merge_note_bodies("line1\nlineA", "line1\nlineB"), "line1\nlineA\nlineB");
+        assert_eq!(
+            merge_note_bodies("line1\nlineA", "line1\nlineB"),
+            "line1\nlineA\nlineB"
+        );
     }
 }
