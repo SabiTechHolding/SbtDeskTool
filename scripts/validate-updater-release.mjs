@@ -65,6 +65,9 @@ async function githubAsset(asset) {
 }
 
 const release = await findRelease();
+if (release.tag_name !== tag) {
+  throw new Error(`Resolved release tag ${release.tag_name ?? "(missing)"} does not match ${tag}`);
+}
 const assetsById = new Map(release.assets.map((asset) => [String(asset.id), asset]));
 const assetsByName = new Map(release.assets.map((asset) => [asset.name, asset]));
 const manifestAsset = assetsByName.get("latest.json");
@@ -94,10 +97,14 @@ for (const [platform, update] of Object.entries(manifest.platforms)) {
     throw new Error(`${platform}: latest.json signature does not match ${signatureAsset.name}`);
   }
 
-  // tauri-action emits GitHub API asset URLs. Public desktop clients should
-  // use the stable browser URL instead: api.github.com is commonly blocked by
-  // corporate proxies and requires API-specific response handling.
-  update.url = packageAsset.browser_download_url;
+  // tauri-action emits GitHub API asset URLs. A draft release's
+  // `browser_download_url` is also temporary: it contains `untagged-<id>` and
+  // becomes invalid after the draft is published. Build the public URL from
+  // the release tag instead, which is valid both for a draft and after it is
+  // published, and does not require GitHub's API endpoint.
+  update.url = `https://github.com/${repository}/releases/download/${encodeURIComponent(
+    release.tag_name,
+  )}/${encodeURIComponent(packageAsset.name)}`;
 }
 
 if (outputPath) {

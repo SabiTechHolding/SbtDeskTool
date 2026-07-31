@@ -1,5 +1,11 @@
 # SbtDeskTool changelog
 
+## v1.26.7.31 — Updater Reliability Fixes
+
+- Fixed automatic updates by publishing permanent tagged GitHub download URLs instead of temporary draft-release URLs.
+- Stopped retrying alternate network strategies after a server responds with an HTTP error.
+- Fixed Notes so sequential saves replace edited content instead of incorrectly merging older lines.
+
 ## v1.26.7.30 — Multi-window Notes Sync and Notepad++ Shortcuts
 
 - Fixed data loss when editing Notes across multiple windows by automatically merging latest content without overwriting changes.

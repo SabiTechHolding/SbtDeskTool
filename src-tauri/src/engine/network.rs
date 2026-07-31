@@ -2,6 +2,12 @@ use std::time::Duration;
 
 const JSON_ACCEPT: &str = "application/json, text/plain, */*";
 const BINARY_ACCEPT: &str = "application/octet-stream";
+const HTTP_STATUS_ERROR_PREFIX: &str = "HTTP status error: ";
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 SbtDeskTool";
+
+fn is_http_status_error(error: &str) -> bool {
+    error.starts_with(HTTP_STATUS_ERROR_PREFIX)
+}
 
 fn accept_header(url: &str) -> &'static str {
     let is_github_release_asset = url::Url::parse(url).is_ok_and(|parsed| {
@@ -30,17 +36,14 @@ async fn request_reqwest_bytes(
         .map_err(|e| format!("Client build error: {e}"))?;
     client
         .get(url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 SbtDeskTool",
-        )
+        .header("User-Agent", USER_AGENT)
         .header("Accept", accept_header(url))
         .header("Accept-Language", "en-US,en;q=0.9")
         .send()
         .await
         .map_err(|e| format!("Request error: {e}"))?
         .error_for_status()
-        .map_err(|e| format!("HTTP error: {e}"))?
+        .map_err(|e| format!("{HTTP_STATUS_ERROR_PREFIX}{e}"))?
         .bytes()
         .await
         .map(|bytes| bytes.to_vec())
@@ -157,7 +160,7 @@ fn request_wininet_blocking(url: &str) -> Result<Vec<u8>, String> {
     }
     if !(200..300).contains(&status_code) {
         return Err(format!(
-            "Windows proxy/PAC HTTP error: status {status_code}"
+            "{HTTP_STATUS_ERROR_PREFIX} Windows proxy/PAC returned status {status_code}"
         ));
     }
 
@@ -237,6 +240,11 @@ pub async fn request_bytes_with_strategies(
         match result {
             Ok(body) if !body.is_empty() => return Ok((body, strategy)),
             Ok(_) => errors.push(format!("strategy {strategy}: empty response")),
+            Err(error) if is_http_status_error(&error) => {
+                return Err(format!(
+                    "Request received an HTTP error with strategy {strategy}: {error}"
+                ));
+            }
             Err(error) => errors.push(format!("strategy {strategy}: {error}")),
         }
     }
@@ -256,6 +264,15 @@ pub async fn request_with_strategies(url: &str, preferred: u8) -> Result<(String
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn http_status_errors_are_terminal() {
+        assert!(is_http_status_error("HTTP status error: 404 Not Found"));
+        assert!(is_http_status_error(
+            "HTTP status error: Windows proxy/PAC returned status 503"
+        ));
+        assert!(!is_http_status_error("Request error: connection reset"));
+        assert!(!is_http_status_error("Response read error: unexpected EOF"));
+    }
 
     #[test]
     fn preferred_strategy_runs_first_without_duplicates() {

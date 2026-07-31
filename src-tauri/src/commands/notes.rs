@@ -171,14 +171,23 @@ pub fn list_notes() -> Result<Vec<Note>, String> {
     read_notes(&crate::get_data_dir().join("notes.json"))
 }
 
+fn resolve_saved_body(existing: &Note, incoming: &Note) -> String {
+    if existing.updated_at == incoming.updated_at {
+        incoming.body.clone()
+    } else {
+        merge_note_bodies(&existing.body, &incoming.body)
+    }
+}
+
 #[tauri::command]
-pub fn save_note(app: tauri::AppHandle, note: Note) -> Result<(), String> {
+pub fn save_note(app: tauri::AppHandle, note: Note) -> Result<Note, String> {
     use tauri::Emitter;
     let path = crate::get_data_dir().join("notes.json");
     let mut notes = read_notes(&path)?;
+    let note_id = note.id;
 
     if let Some(existing) = notes.iter_mut().find(|entry| entry.id == note.id) {
-        let merged_body = merge_note_bodies(&existing.body, &note.body);
+        let merged_body = resolve_saved_body(existing, &note);
         let merged_title = if note.title.trim().is_empty() || note.title == "Untitled" {
             existing.title.clone()
         } else {
@@ -195,7 +204,10 @@ pub fn save_note(app: tauri::AppHandle, note: Note) -> Result<(), String> {
     }
     write_notes(&path, &notes)?;
     let _ = app.emit("notes-updated", ());
-    Ok(())
+    notes
+        .into_iter()
+        .find(|entry| entry.id == note_id)
+        .ok_or_else(|| "Saved note was not found".to_string())
 }
 
 #[tauri::command]
@@ -255,6 +267,29 @@ mod tests {
         let ids: Vec<i64> = reordered.into_iter().map(|entry| entry.id).collect();
 
         assert_eq!(ids, vec![3, 1, 2]);
+    }
+
+    #[test]
+    fn sequential_save_replaces_body_without_merging() {
+        let existing = Note {
+            id: 1,
+            title: "Note".into(),
+            body: "line 1".into(),
+            created_at: "created".into(),
+            updated_at: "version-1".into(),
+        };
+        let current = Note {
+            body: "line 2".into(),
+            ..existing.clone()
+        };
+        assert_eq!(resolve_saved_body(&existing, &current), "line 2");
+
+        let stale = Note {
+            body: "line 2".into(),
+            updated_at: "version-0".into(),
+            ..existing.clone()
+        };
+        assert_eq!(resolve_saved_body(&existing, &stale), "line 1\nline 2");
     }
 
     #[test]

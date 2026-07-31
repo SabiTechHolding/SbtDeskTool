@@ -208,9 +208,9 @@
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      await invoke("save_note", { note });
-      notes = [...notes, note];
-      await selectNote(note.id);
+      const saved = await invoke<Note>("save_note", { note });
+      notes = [...notes, saved];
+      await selectNote(saved.id);
       onStatusUpdate?.("Note created", "success");
     } catch (error) {
       onStatusUpdate?.(`Cannot create note: ${error}`, "error");
@@ -268,9 +268,9 @@
         updated_at: new Date().toISOString(),
       };
       try {
-        await invoke("save_note", { note });
-        notes = [...notes, note];
-        currentNoteId = note.id;
+        const saved = await invoke<Note>("save_note", { note });
+        notes = [...notes, saved];
+        currentNoteId = saved.id;
         isDirty = false;
         onStatusUpdate?.("Note created", "success");
       } catch (error) {
@@ -281,12 +281,14 @@
     const note = currentNote();
     if (!note) return;
     try {
-      const updatedAt = new Date().toISOString();
-      await invoke("save_note", {
-        note: { ...note, title, body, updated_at: updatedAt },
+      const saved = await invoke<Note>("save_note", {
+        note: { ...note, title, body },
       });
-      notes = notes.map((n) => n.id === currentNoteId ? { ...n, title, body, updated_at: updatedAt } : n);
+      notes = notes.map((n) => n.id === currentNoteId ? saved : n);
+      title = saved.title;
+      body = saved.body;
       isDirty = false;
+      updatePreview();
       onStatusUpdate?.("Note saved", "success");
     } catch (error) {
       onStatusUpdate?.(`Cannot save note: ${error}`, "error");
