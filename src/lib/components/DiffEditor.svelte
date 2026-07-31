@@ -1,15 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-  import "monaco-editor/esm/vs/basic-languages/rust/rust.contribution.js";
-  import "monaco-editor/esm/vs/basic-languages/python/python.contribution.js";
-  import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js";
-  import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js";
-  import "monaco-editor/esm/vs/basic-languages/html/html.contribution.js";
-  import "monaco-editor/esm/vs/basic-languages/css/css.contribution.js";
-  import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js";
-  import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+  import { applyMonacoTheme, configureMonaco, monaco } from "../utils/monaco";
   import { saveSetting } from "../stores/settings";
+  import { detectEditorLanguage } from "../utils/editorLanguage";
   import { installMonacoFindTooltip } from "../utils/monacoFindTooltip";
   import { installNotepadPlusPlusKeybindings } from "../utils/editorKeybindings";
   import ContextMenu from "./ContextMenu.svelte";
@@ -134,119 +127,11 @@
 
   const WORD_SEPARATORS = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
-  function configureWorker() {
-    const scope = self as typeof self & {
-      MonacoEnvironment?: {
-        getWorker: (_moduleId: string, _label: string) => Worker;
-      };
-    };
-    scope.MonacoEnvironment = {
-      getWorker: () => new EditorWorker(),
-    };
-  }
-
-  function withAlpha(color: string, alpha: string) {
-    if (/^#[0-9a-f]{3}$/i.test(color)) {
-      const [r, g, b] = color.slice(1).split("");
-      return `#${r}${r}${g}${g}${b}${b}${alpha}`;
-    }
-    if (/^#[0-9a-f]{6}$/i.test(color)) return `${color}${alpha}`;
-    return color;
-  }
-
-  function applyTheme() {
-    const light = theme === "light";
-    const themeName = light ? "sbt-diff-light" : "sbt-diff-dark";
-    const palette = light
-      ? {
-          background: "#ffffff",
-          foreground: "#1e1e1e",
-          gutter: "#f6f8fa",
-          lineNumber: "#a0a0a0",
-          lineHighlight: "#e8e8e8",
-          selection: "#cce8ff",
-          warning: "#b8860b",
-          addInline: "#34a853",
-          addForeground: "#1a4a2a",
-          deleteInline: "#d93025",
-          deleteForeground: "#5c1010",
-          border: "#d1d1d1",
-          secondary: "#5a5a5a",
-        }
-      : {
-          background: "#1a1a1a",
-          foreground: "#e8e8e8",
-          gutter: "#141414",
-          lineNumber: "#555555",
-          lineHighlight: "#252525",
-          selection: "#3a3a3a",
-          warning: "#c8963e",
-          addInline: "#1a6b1a",
-          addForeground: "#87d987",
-          deleteInline: "#8b1a1a",
-          deleteForeground: "#f08080",
-          border: "#333333",
-          secondary: "#909090",
-        };
-    monaco.editor.defineTheme(themeName, {
-      base: light ? "vs" : "vs-dark",
-      inherit: true,
-      rules: [],
-      colors: {
-        "editor.background": palette.background,
-        "editor.foreground": palette.foreground,
-        "editorGutter.background": palette.gutter,
-        "editorLineNumber.foreground": palette.lineNumber,
-        "editorLineNumber.activeForeground": palette.foreground,
-        "editor.lineHighlightBackground": palette.lineHighlight,
-        "editor.selectionBackground": palette.selection,
-        "editorCursor.foreground": palette.foreground,
-        "editor.findMatchBackground": palette.warning,
-        "editor.findMatchHighlightBackground": withAlpha(palette.warning, "88"),
-        "diffEditor.insertedTextBackground": withAlpha(palette.addInline, "55"),
-        "diffEditor.removedTextBackground": withAlpha(palette.deleteInline, "55"),
-        "diffEditor.insertedLineBackground": withAlpha(palette.addInline, "20"),
-        "diffEditor.removedLineBackground": withAlpha(palette.deleteInline, "20"),
-        "diffEditorGutter.insertedLineBackground": withAlpha(palette.addInline, "28"),
-        "diffEditorGutter.removedLineBackground": withAlpha(palette.deleteInline, "28"),
-        "diffEditorOverview.insertedForeground": palette.addForeground,
-        "diffEditorOverview.removedForeground": palette.deleteForeground,
-        "diffEditor.diagonalFill": withAlpha(palette.secondary, "33"),
-        "diffEditor.border": palette.border,
-        "diffEditor.unchangedRegionBackground": palette.gutter,
-        "diffEditor.unchangedCodeBackground": withAlpha(palette.lineHighlight, "66"),
-        "scrollbarSlider.background": withAlpha(palette.secondary, "44"),
-        "scrollbarSlider.hoverBackground": withAlpha(palette.secondary, "77"),
-        "scrollbarSlider.activeBackground": withAlpha(palette.secondary, "99"),
-      },
-    });
-    monaco.editor.setTheme(themeName);
-  }
-
-  function detectLanguage(text: string) {
-    const sample = text.trimStart();
-    if (/^(use|mod|pub|fn|impl|struct|enum|trait)\b/m.test(sample) || /\blet\s+mut\b/.test(sample)) return "rust";
-    if (/^(from\s+\S+\s+import|import\s+\S+|def\s+\w+|class\s+\w+):?/m.test(sample)) return "python";
-    if (/^\s*[{[]/.test(sample)) {
-      try {
-        JSON.parse(text);
-        return "json";
-      } catch {
-        // Keep detecting below.
-      }
-    }
-    if (/^<(!doctype|html|[A-Za-z][\w:-]*[\s>])/i.test(sample)) return "html";
-    if (/^(#\s|##\s|```|---\s*$)/m.test(sample)) return "markdown";
-    if (/\b(interface|type|const|let|function|export|import)\b/.test(sample)) return "typescript";
-    if (/[.#][\w-]+\s*\{[^}]*:[^}]*\}/s.test(sample)) return "css";
-    return "plaintext";
-  }
-
   function updateModelLanguage() {
     if (!leftModel || !rightModel) return;
-    const language = detectLanguage(`${leftModel.getValue()}\n${rightModel.getValue()}`);
-    monaco.editor.setModelLanguage(leftModel, language);
-    monaco.editor.setModelLanguage(rightModel, language);
+    const language = detectEditorLanguage(`${leftModel.getValue()}\n${rightModel.getValue()}`);
+    if (leftModel.getLanguageId() !== language) monaco.editor.setModelLanguage(leftModel, language);
+    if (rightModel.getLanguageId() !== language) monaco.editor.setModelLanguage(rightModel, language);
   }
 
   function editorOptions(): monaco.editor.IDiffEditorOptions {
@@ -270,7 +155,7 @@
       renderOverviewRuler: true,
       glyphMargin: false,
       lineNumbers: "on",
-      lineNumbersMinChars: 2,
+      lineNumbersMinChars: 3,
       minimap: { enabled: false },
       overviewRulerLanes: 2,
       scrollBeyondLastLine: false,
@@ -956,11 +841,12 @@
   }
 
   onMount(() => {
-    configureWorker();
-    applyTheme();
+    configureMonaco();
+    applyMonacoTheme(theme);
 
-    leftModel = monaco.editor.createModel(leftValue, detectLanguage(leftValue), monaco.Uri.parse("inmemory://sbt-diff/original"));
-    rightModel = monaco.editor.createModel(rightValue, detectLanguage(rightValue), monaco.Uri.parse("inmemory://sbt-diff/modified"));
+    const initialLanguage = detectEditorLanguage(`${leftValue}\n${rightValue}`);
+    leftModel = monaco.editor.createModel(leftValue, initialLanguage, monaco.Uri.parse("inmemory://sbt-diff/original"));
+    rightModel = monaco.editor.createModel(rightValue, initialLanguage, monaco.Uri.parse("inmemory://sbt-diff/modified"));
     diffEditor = monaco.editor.createDiffEditor(container, editorOptions());
     diffEditor.setModel({ original: leftModel, modified: rightModel });
 
@@ -985,10 +871,12 @@
       }),
       leftModel.onDidChangeContent(() => {
         if (!applyingExternalLeft) onChangeLeft?.(leftModel?.getValue() ?? "");
+        updateModelLanguage();
         scheduleFocusedDetailRestore();
       }),
       rightModel.onDidChangeContent(() => {
         if (!applyingExternalRight) onChangeRight?.(rightModel?.getValue() ?? "");
+        updateModelLanguage();
         scheduleFocusedDetailRestore();
       }),
       leftEditor.onDidFocusEditorText(() => {
@@ -1036,7 +924,7 @@
     }
 
     themeObserver = new MutationObserver(() => {
-      applyTheme();
+      applyMonacoTheme(theme);
       diffEditor?.layout();
     });
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -1077,7 +965,7 @@
   $effect(() => {
     if (!mounted || !diffEditor) return;
     theme;
-    applyTheme();
+    applyMonacoTheme(theme);
     diffEditor.layout();
   });
 

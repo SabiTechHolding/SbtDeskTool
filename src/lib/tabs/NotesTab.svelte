@@ -7,6 +7,7 @@
   import DeleteConfirm from "../components/DeleteConfirm.svelte";
   import AppIcon from "../components/AppIcon.svelte";
   import { saveSetting } from "../stores/settings";
+  import { detectEditorLanguage } from "../utils/editorLanguage";
 
   let {
     compact, wordWrap, showWhitespace, fontSize, autoSave: initialAutoSave, initialSidebarWidth, onZoom, onToggleWrap, onToggleWhitespace, onCursorChange, onStatusUpdate, onNotesChange,
@@ -37,6 +38,7 @@
   let currentNoteId = $state<number | null>(null);
   let title = $state("");
   let body = $state("");
+  let editorLanguage = $derived(detectEditorLanguage(body));
   let autoSave = $state(true);
   $effect(() => { autoSave = initialAutoSave; });
   let isDirty = $state(false);
@@ -516,7 +518,7 @@
           {wordWrap}
           {showWhitespace}
           showLineNumbers={true}
-          language="markdown"
+          language={editorLanguage}
           onChange={onBodyChange}
           onKeyDown={handleKeyDown}
           onCursorChange={(line, col, selLen, chars) => onCursorChange?.(line, col, selLen, chars)}

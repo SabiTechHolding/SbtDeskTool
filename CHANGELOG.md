@@ -5,6 +5,7 @@
 - Fixed automatic updates by publishing permanent tagged GitHub download URLs instead of temporary draft-release URLs.
 - Stopped retrying alternate network strategies after a server responds with an HTTP error.
 - Fixed Notes so sequential saves replace edited content instead of incorrectly merging older lines.
+- Added shared syntax auto-detection to Diff, Translate Source/Translated, and Notes editors, with Markdown fallback for regular text and line numbers in Source.
 
 ## v1.26.7.30 — Multi-window Notes Sync and Notepad++ Shortcuts
 

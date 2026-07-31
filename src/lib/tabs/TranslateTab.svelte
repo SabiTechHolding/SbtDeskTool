@@ -7,6 +7,7 @@
   import FindBar from "../components/FindBar.svelte";
   import AppIcon from "../components/AppIcon.svelte";
   import { loadSettings, saveSetting } from "../stores/settings";
+  import { detectEditorLanguage } from "../utils/editorLanguage";
   import { langNameFromCode, mapLang } from "../utils/languages";
   import { onMount, onDestroy } from "svelte";
 
@@ -30,6 +31,8 @@
   let sourceText = $state("");
   let translatedText = $state("");
   let detectedLang = $state("");
+  let sourceEditorLanguage = $derived(detectEditorLanguage(sourceText));
+  let translatedEditorLanguage = $derived(detectEditorLanguage(translatedText));
   let isTranslating = $state(false);
   let findOpen = $state(false);
   let findBar = $state<FindBar>();
@@ -483,6 +486,8 @@
         {fontSize}
         {wordWrap}
         {showWhitespace}
+        showLineNumbers={true}
+        language={sourceEditorLanguage}
         onChange={onSourceChange}
         onKeyDown={handleSourceKeyDown}
         onContextMenu={(e) => showContextMenu(e, true)}
@@ -524,6 +529,7 @@
         {wordWrap}
         {showWhitespace}
         textColor="var(--accent2)"
+        language={translatedEditorLanguage}
         readonly={true}
         onKeyDown={handleSourceKeyDown}
         onContextMenu={(e) => showContextMenu(e, false)}
