@@ -569,6 +569,11 @@ fn agent_cli_arguments(arguments: &str, prompt: &str) -> (Vec<String>, bool) {
     (arguments, uses_prompt_argument)
 }
 
+#[cfg(windows)]
+fn agent_cli_creation_flags() -> u32 {
+    0x0800_0000 // CREATE_NO_WINDOW
+}
+
 async fn call_agent_cli(prompt: &str, provider: &ProviderConnection) -> Result<String, String> {
     let executable = provider.model.trim();
     if executable.is_empty() {
@@ -576,6 +581,8 @@ async fn call_agent_cli(prompt: &str, provider: &ProviderConnection) -> Result<S
     }
     let (arguments, uses_prompt_argument) = agent_cli_arguments(&provider.base_url, prompt);
     let mut command = tokio::process::Command::new(executable);
+    #[cfg(windows)]
+    command.creation_flags(agent_cli_creation_flags());
     command
         .args(arguments)
         .stdin(if uses_prompt_argument {
@@ -613,14 +620,13 @@ async fn call_agent_cli(prompt: &str, provider: &ProviderConnection) -> Result<S
             format!("Agent CLI exited with {}: {detail}", output.status)
         });
     }
-    if stdout.is_empty() {
-        return Err(if stderr.is_empty() {
-            "Agent CLI returned no translation".into()
+    crate::engine::agent_cli::parse_output(executable, &stdout).map_err(|error| {
+        if stderr.is_empty() {
+            error
         } else {
-            format!("Agent CLI returned no translation: {stderr}")
-        });
-    }
-    Ok(stdout)
+            format!("{error}: {stderr}")
+        }
+    })
 }
 
 fn protect_dictionary_terms(
@@ -648,11 +654,19 @@ fn restore_dictionary_terms(text: &mut String, replacements: &[(String, String)]
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::agent_cli_creation_flags;
     use super::{
         agent_cli_arguments, parse_batch_translations, protect_dictionary_terms,
         redact_provider_error, restore_dictionary_terms, retry_delay, test_connection,
         translate_many_with_fallback,
     };
+
+    #[cfg(windows)]
+    #[test]
+    fn agent_cli_processes_are_created_without_a_console_window() {
+        assert_eq!(agent_cli_creation_flags(), 0x0800_0000);
+    }
 
     #[test]
     fn agent_cli_supports_prompt_argument_or_stdin() {

@@ -4,7 +4,12 @@
 
 - Fixed provider connection tests to use the current unsaved enablement, endpoint, model, and API key values.
 - Preserved stored API keys when Save or Test is used with a blank API key field.
-- Added Agent CLI as a translation provider for any non-interactive AI CLI, with configurable executable and arguments, prompt substitution or stdin input, stdout output, batching, fallback, retries, and timeout handling.
+- Added reusable Agent CLI profiles for Codex, Claude Code, Gemini CLI, Kiro, OpenCode, GitHub Copilot CLI, Qwen, and custom non-interactive AI commands.
+- Added support for creating multiple Agent CLI providers with configurable executables, arguments, prompt or stdin input, stdout output, batching, fallback, retries, and timeout handling.
+- Prevented Agent CLI processes from opening visible console windows on Windows.
+- Added removable built-in AI providers and persisted deleted providers across app restarts, while keeping Google Translate as the protected system provider.
+- Added multiple custom OpenAI-compatible providers with configurable names, models, endpoints, optional API keys, fallback support, and secure per-provider credential storage.
+- Moved Add Custom Provider and Add Agent CLI actions to the bottom of the provider sidebar.
 - Fixed Translate status to report the actual source, such as Google Translate, Dictionary, Translation Memory, or cache, instead of labeling every fresh translation as AI.
 
 ## v1.26.7.31 — Updater Reliability Fixes

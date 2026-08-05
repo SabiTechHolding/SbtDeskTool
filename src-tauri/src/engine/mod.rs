@@ -1,3 +1,4 @@
+pub mod agent_cli;
 pub mod diff;
 pub mod network;
 pub mod providers;

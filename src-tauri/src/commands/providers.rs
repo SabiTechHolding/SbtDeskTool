@@ -2,11 +2,12 @@ use crate::commands::settings::SettingsState;
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tauri::State;
 
 const SETTINGS_KEY: &str = "translation_provider_configs";
 const FALLBACK_KEY: &str = "translation_fallback_provider_ids";
+const DELETED_KEY: &str = "translation_deleted_provider_ids";
 const POLICY_KEY: &str = "translation_policy";
 const KEYRING_SERVICE: &str = "com.sabitech.sbtdesktool.translation";
 
@@ -14,6 +15,8 @@ const KEYRING_SERVICE: &str = "com.sabitech.sbtdesktool.translation";
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
     pub id: String,
+    #[serde(default)]
+    pub name: String,
     pub enabled: bool,
     pub model: String,
     pub base_url: String,
@@ -60,6 +63,7 @@ pub(crate) fn translation_policy(settings: &Map<String, Value>) -> TranslationPo
 #[serde(rename_all = "camelCase")]
 pub struct ProviderSettingsView {
     pub id: String,
+    pub kind: String,
     pub name: String,
     pub enabled: bool,
     pub model: String,
@@ -114,6 +118,7 @@ fn defaults(id: &str) -> ProviderConfig {
     };
     ProviderConfig {
         id: id.into(),
+        name: String::new(),
         enabled: id == "google",
         model: model.into(),
         base_url: base_url.into(),
@@ -125,6 +130,55 @@ fn defaults(id: &str) -> ProviderConfig {
             default_concurrency()
         },
     }
+}
+
+fn is_agent_cli_id(id: &str) -> bool {
+    id == "agent_cli" || id.starts_with("agent_cli:")
+}
+
+fn is_custom_provider_id(id: &str) -> bool {
+    id.starts_with("custom:")
+}
+
+fn is_dynamic_provider_id(id: &str) -> bool {
+    is_agent_cli_id(id) || is_custom_provider_id(id)
+}
+
+fn dynamic_provider_name(config: &ProviderConfig) -> String {
+    let name = config.name.trim();
+    if name.is_empty() {
+        if is_custom_provider_id(&config.id) {
+            "Custom Provider".into()
+        } else {
+            "Agent CLI".into()
+        }
+    } else {
+        name.into()
+    }
+}
+
+fn provider_definition(id: &str) -> Option<crate::engine::providers::ProviderInfo> {
+    let registered_id = if is_agent_cli_id(id) {
+        "agent_cli"
+    } else if is_custom_provider_id(id) {
+        "local"
+    } else {
+        id
+    };
+    crate::engine::providers::list()
+        .into_iter()
+        .find(|provider| provider.id == registered_id)
+}
+
+fn deleted_provider_ids(settings: &Map<String, Value>) -> BTreeSet<String> {
+    settings
+        .get(DELETED_KEY)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
 }
 
 fn entry(id: &str) -> Result<Entry, String> {
@@ -145,22 +199,41 @@ pub(crate) fn connection(
     settings: &Map<String, Value>,
     name: &str,
 ) -> Result<ProviderConnection, String> {
-    let provider = crate::engine::providers::list()
+    let mut configs = load_configs(settings);
+    let (provider, config) = if let Some(provider) = crate::engine::providers::list()
         .into_iter()
-        .find(|provider| provider.name == name)
-        .ok_or_else(|| format!("Unknown translation provider: {name}"))?;
-    let config = load_configs(settings)
-        .remove(provider.id)
-        .unwrap_or_else(|| defaults(provider.id));
-    let api_key = stored_api_key(provider.id);
+        .find(|provider| provider.id != "agent_cli" && provider.name == name)
+    {
+        let config = configs
+            .remove(provider.id)
+            .unwrap_or_else(|| defaults(provider.id));
+        (provider, config)
+    } else {
+        let instance_id = configs
+            .iter()
+            .find(|(id, config)| {
+                is_dynamic_provider_id(id) && dynamic_provider_name(config) == name
+            })
+            .map(|(id, _)| id.clone())
+            .ok_or_else(|| format!("Unknown translation provider: {name}"))?;
+        let config = configs
+            .remove(&instance_id)
+            .ok_or_else(|| format!("Unknown translation provider: {name}"))?;
+        let provider = provider_definition(&instance_id)
+            .ok_or_else(|| format!("Unknown translation provider: {name}"))?;
+        (provider, config)
+    };
+    let api_key = stored_api_key(&config.id, provider.id);
     connection_from_config(provider, config, api_key)
 }
 
-fn stored_api_key(id: &str) -> Option<String> {
-    if !requires_api_key(id) {
+fn stored_api_key(config_id: &str, provider_id: &str) -> Option<String> {
+    if !is_custom_provider_id(config_id) && !requires_api_key(provider_id) {
         return None;
     }
-    entry(id).ok().and_then(|entry| entry.get_password().ok())
+    entry(config_id)
+        .ok()
+        .and_then(|entry| entry.get_password().ok())
 }
 
 fn connection_from_config(
@@ -168,10 +241,15 @@ fn connection_from_config(
     config: ProviderConfig,
     api_key: Option<String>,
 ) -> Result<ProviderConnection, String> {
+    let connection_name = if is_dynamic_provider_id(&config.id) {
+        dynamic_provider_name(&config)
+    } else {
+        provider.name.into()
+    };
     if provider.id == "google" {
         return Ok(ProviderConnection {
             id: provider.id.into(),
-            name: provider.name.into(),
+            name: connection_name,
             model: String::new(),
             base_url: String::new(),
             api_key: None,
@@ -181,12 +259,11 @@ fn connection_from_config(
         });
     }
     if !provider.ready {
-        return Err(format!("{} is not implemented yet.", provider.name));
+        return Err(format!("{connection_name} is not implemented yet."));
     }
     if !config.enabled {
         return Err(format!(
-            "{} is disabled in Translation Providers.",
-            provider.name
+            "{connection_name} is disabled in Translation Providers."
         ));
     }
     if provider.id == "agent_cli" && config.model.trim().is_empty() {
@@ -197,16 +274,15 @@ fn connection_from_config(
             || config.base_url.trim().is_empty())
     {
         return Err(format!(
-            "Configure a model and base URL for {}.",
-            provider.name
+            "Configure a model and base URL for {connection_name}."
         ));
     }
     if requires_api_key(provider.id) && api_key.is_none() {
-        return Err(format!("Configure an API key for {}.", provider.name));
+        return Err(format!("Configure an API key for {connection_name}."));
     }
     Ok(ProviderConnection {
         id: provider.id.into(),
-        name: provider.name.into(),
+        name: connection_name,
         model: config.model,
         base_url: config.base_url,
         api_key,
@@ -246,18 +322,23 @@ pub(crate) fn fallback_connections(
         .flatten()
         .filter_map(Value::as_str)
         .filter_map(|id| {
-            let provider = crate::engine::providers::list()
+            let provider = views(settings)
                 .into_iter()
                 .find(|provider| provider.id == id && provider.name != primary_name)?;
-            connection(settings, provider.name).ok()
+            connection(settings, &provider.name).ok()
         })
         .collect()
 }
 
-fn views(settings: &Map<String, Value>) -> Vec<ProviderSettingsView> {
+pub(crate) fn views(settings: &Map<String, Value>) -> Vec<ProviderSettingsView> {
     let configs = load_configs(settings);
-    crate::engine::providers::list()
+    let deleted = deleted_provider_ids(settings);
+    let mut result: Vec<ProviderSettingsView> = crate::engine::providers::list()
         .into_iter()
+        .filter(|provider| {
+            provider.id != "agent_cli"
+                && (provider.id == "google" || !deleted.contains(provider.id))
+        })
         .map(|provider| {
             let config = configs
                 .get(provider.id)
@@ -266,6 +347,7 @@ fn views(settings: &Map<String, Value>) -> Vec<ProviderSettingsView> {
             let requires_api_key = requires_api_key(provider.id);
             ProviderSettingsView {
                 id: provider.id.into(),
+                kind: provider.id.into(),
                 name: provider.name.into(),
                 enabled: config.enabled,
                 model: config.model,
@@ -278,7 +360,50 @@ fn views(settings: &Map<String, Value>) -> Vec<ProviderSettingsView> {
                 concurrency: config.concurrency,
             }
         })
-        .collect()
+        .collect();
+    if let Some(agent_cli) = provider_definition("agent_cli") {
+        result.extend(
+            configs
+                .iter()
+                .filter(|(id, _)| is_agent_cli_id(id))
+                .map(|(id, config)| ProviderSettingsView {
+                    id: id.clone(),
+                    kind: "agent_cli".into(),
+                    name: dynamic_provider_name(config),
+                    enabled: config.enabled,
+                    model: config.model.clone(),
+                    base_url: config.base_url.clone(),
+                    has_api_key: false,
+                    requires_api_key: false,
+                    implemented: agent_cli.ready,
+                    timeout_seconds: config.timeout_seconds,
+                    retries: config.retries,
+                    concurrency: config.concurrency,
+                }),
+        );
+    }
+    if let Some(custom) = provider_definition("custom:template") {
+        result.extend(
+            configs
+                .iter()
+                .filter(|(id, _)| is_custom_provider_id(id))
+                .map(|(id, config)| ProviderSettingsView {
+                    id: id.clone(),
+                    kind: "custom".into(),
+                    name: dynamic_provider_name(config),
+                    enabled: config.enabled,
+                    model: config.model.clone(),
+                    base_url: config.base_url.clone(),
+                    has_api_key: has_secret(id),
+                    requires_api_key: false,
+                    implemented: custom.ready,
+                    timeout_seconds: config.timeout_seconds,
+                    retries: config.retries,
+                    concurrency: config.concurrency,
+                }),
+        );
+    }
+    result
 }
 
 #[tauri::command]
@@ -287,6 +412,11 @@ pub fn get_translation_provider_settings(
 ) -> Result<Vec<ProviderSettingsView>, String> {
     let settings = state.0.lock().map_err(|error| error.to_string())?;
     Ok(views(&settings))
+}
+
+#[tauri::command]
+pub fn get_agent_cli_profiles() -> Vec<crate::engine::agent_cli::AgentCliProfile> {
+    crate::engine::agent_cli::profiles()
 }
 
 #[tauri::command]
@@ -307,17 +437,17 @@ pub fn save_translation_fallback(
     ids: Vec<String>,
     state: State<SettingsState>,
 ) -> Result<Vec<String>, String> {
-    let known: Vec<&str> = crate::engine::providers::list()
-        .iter()
+    let mut settings = state.0.lock().map_err(|error| error.to_string())?;
+    let known: Vec<String> = views(&settings)
+        .into_iter()
         .map(|provider| provider.id)
         .collect();
     let mut unique = Vec::new();
     for id in ids {
-        if known.contains(&id.as_str()) && !unique.contains(&id) {
+        if known.contains(&id) && !unique.contains(&id) {
             unique.push(id);
         }
     }
-    let mut settings = state.0.lock().map_err(|error| error.to_string())?;
     settings.insert(
         FALLBACK_KEY.into(),
         serde_json::to_value(&unique).map_err(|error| error.to_string())?,
@@ -353,15 +483,30 @@ pub fn save_translation_provider_settings(
     api_key: Option<String>,
     state: State<SettingsState>,
 ) -> Result<Vec<ProviderSettingsView>, String> {
-    if !crate::engine::providers::list()
-        .iter()
-        .any(|provider| provider.id == config.id)
-    {
+    if provider_definition(&config.id).is_none() {
         return Err("Unknown translation provider".into());
+    }
+    if is_dynamic_provider_id(&config.id) {
+        config.name = config.name.trim().to_string();
+        if config.name.is_empty() {
+            return Err("Enter a display name for this provider.".into());
+        }
     }
     config.timeout_seconds = config.timeout_seconds.clamp(5, 600);
     config.retries = config.retries.min(10);
     config.concurrency = config.concurrency.clamp(1, 32);
+    let mut settings = state.0.lock().map_err(|error| error.to_string())?;
+    let mut configs = load_configs(&settings);
+    if is_dynamic_provider_id(&config.id)
+        && views(&settings).iter().any(|existing| {
+            existing.id != config.id && existing.name.eq_ignore_ascii_case(&config.name)
+        })
+    {
+        return Err(format!(
+            "A provider named '{}' already exists.",
+            config.name
+        ));
+    }
     if let Some(api_key) = api_key {
         let entry = entry(&config.id)?;
         if api_key.trim().is_empty() {
@@ -375,13 +520,61 @@ pub fn save_translation_provider_settings(
                 .map_err(|error| error.to_string())?;
         }
     }
-    let mut settings = state.0.lock().map_err(|error| error.to_string())?;
-    let mut configs = load_configs(&settings);
+    let mut deleted = deleted_provider_ids(&settings);
+    deleted.remove(&config.id);
     configs.insert(config.id.clone(), config);
     settings.insert(
         SETTINGS_KEY.into(),
         serde_json::to_value(configs).map_err(|error| error.to_string())?,
     );
+    settings.insert(
+        DELETED_KEY.into(),
+        serde_json::to_value(deleted).map_err(|error| error.to_string())?,
+    );
+    crate::save_settings_to_disk(&settings);
+    Ok(views(&settings))
+}
+
+#[tauri::command]
+pub fn delete_translation_provider(
+    id: String,
+    state: State<SettingsState>,
+) -> Result<Vec<ProviderSettingsView>, String> {
+    if id == "google" {
+        return Err("Google Translate is a built-in system provider.".into());
+    }
+    let mut settings = state.0.lock().map_err(|error| error.to_string())?;
+    let removed_name = views(&settings)
+        .into_iter()
+        .find(|provider| provider.id == id)
+        .map(|provider| provider.name)
+        .ok_or_else(|| "Translation provider was not found.".to_string())?;
+    if let Ok(credential) = entry(&id) {
+        match credential.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    let mut configs = load_configs(&settings);
+    configs.remove(&id);
+    let mut deleted = deleted_provider_ids(&settings);
+    if !is_dynamic_provider_id(&id) {
+        deleted.insert(id.clone());
+    }
+    settings.insert(
+        SETTINGS_KEY.into(),
+        serde_json::to_value(configs).map_err(|error| error.to_string())?,
+    );
+    settings.insert(
+        DELETED_KEY.into(),
+        serde_json::to_value(deleted).map_err(|error| error.to_string())?,
+    );
+    if let Some(fallback) = settings.get_mut(FALLBACK_KEY).and_then(Value::as_array_mut) {
+        fallback.retain(|value| value.as_str() != Some(&id));
+    }
+    if settings.get("engine").and_then(Value::as_str) == Some(&removed_name) {
+        settings.insert("engine".into(), Value::String("Google Translate".into()));
+    }
     crate::save_settings_to_disk(&settings);
     Ok(views(&settings))
 }
@@ -408,16 +601,14 @@ pub async fn test_translation_provider(
 ) -> Result<String, String> {
     let (provider, strategy) = {
         let settings = state.0.lock().map_err(|error| error.to_string())?;
-        let registered = crate::engine::providers::list()
-            .into_iter()
-            .find(|provider| provider.id == config.id)
+        let registered = provider_definition(&config.id)
             .ok_or_else(|| "Unknown translation provider".to_string())?;
         config.timeout_seconds = config.timeout_seconds.clamp(5, 600);
         config.retries = config.retries.min(10);
         config.concurrency = config.concurrency.clamp(1, 32);
         let api_key = api_key
             .filter(|key| !key.trim().is_empty())
-            .or_else(|| stored_api_key(registered.id));
+            .or_else(|| stored_api_key(&config.id, registered.id));
         let provider = connection_from_config(registered, config, api_key)?;
         let strategy = settings
             .get("network_strategy")
@@ -430,13 +621,92 @@ pub async fn test_translation_provider(
 
 #[cfg(test)]
 mod tests {
-    use super::{connection_from_config, defaults};
+    use super::{connection, connection_from_config, defaults, views, SETTINGS_KEY};
+    use serde_json::{Map, Value};
+    use std::collections::BTreeMap;
 
     fn provider(id: &str) -> crate::engine::providers::ProviderInfo {
         crate::engine::providers::list()
             .into_iter()
             .find(|provider| provider.id == id)
             .expect("registered provider")
+    }
+
+    #[test]
+    fn agent_cli_is_not_a_fixed_provider_without_a_saved_instance() {
+        let settings = Map::new();
+        assert!(!views(&settings)
+            .iter()
+            .any(|provider| provider.id == "agent_cli"));
+    }
+
+    #[test]
+    fn saved_agent_cli_instances_are_listed_and_resolved_by_display_name() {
+        let mut config = defaults("agent_cli:kiro");
+        config.name = "Kiro Translator".into();
+        config.enabled = true;
+        config.model = "kiro-cli".into();
+        config.base_url = "chat\n--no-interactive\n{prompt}".into();
+        let mut configs = BTreeMap::new();
+        configs.insert(config.id.clone(), config);
+        let mut settings = Map::new();
+        settings.insert(
+            SETTINGS_KEY.into(),
+            serde_json::to_value(configs).expect("serialize configs"),
+        );
+
+        let listed = views(&settings)
+            .into_iter()
+            .find(|provider| provider.id == "agent_cli:kiro")
+            .expect("dynamic Agent CLI view");
+        assert_eq!(listed.kind, "agent_cli");
+        assert_eq!(listed.name, "Kiro Translator");
+
+        let resolved = connection(&settings, "Kiro Translator").expect("dynamic connection");
+        assert_eq!(resolved.id, "agent_cli");
+        assert_eq!(resolved.name, "Kiro Translator");
+        assert_eq!(resolved.model, "kiro-cli");
+        assert!(matches!(settings.get(SETTINGS_KEY), Some(Value::Object(_))));
+    }
+
+    #[test]
+    fn deleted_builtin_provider_is_not_listed() {
+        let mut settings = Map::new();
+        settings.insert(
+            "translation_deleted_provider_ids".into(),
+            serde_json::json!(["openai"]),
+        );
+        let listed = views(&settings);
+        assert!(listed.iter().any(|provider| provider.id == "google"));
+        assert!(!listed.iter().any(|provider| provider.id == "openai"));
+    }
+
+    #[test]
+    fn custom_openai_compatible_instances_are_listed_and_resolved() {
+        let mut config = defaults("custom:acme");
+        config.name = "Acme Translate".into();
+        config.enabled = true;
+        config.model = "acme-model".into();
+        config.base_url = "https://translate.example/v1".into();
+        let mut configs = BTreeMap::new();
+        configs.insert(config.id.clone(), config);
+        let mut settings = Map::new();
+        settings.insert(
+            SETTINGS_KEY.into(),
+            serde_json::to_value(configs).expect("serialize configs"),
+        );
+
+        let listed = views(&settings)
+            .into_iter()
+            .find(|provider| provider.id == "custom:acme")
+            .expect("custom provider view");
+        assert_eq!(listed.kind, "custom");
+        assert_eq!(listed.name, "Acme Translate");
+
+        let resolved = connection(&settings, "Acme Translate").expect("custom connection");
+        assert_eq!(resolved.id, "local");
+        assert_eq!(resolved.name, "Acme Translate");
+        assert_eq!(resolved.model, "acme-model");
     }
 
     #[test]

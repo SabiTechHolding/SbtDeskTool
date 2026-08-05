@@ -378,11 +378,11 @@
 
   async function refreshTranslationEngines() {
     try {
-      const providers = await invoke<Array<{ name: string; enabled: boolean; model: string; baseUrl: string; requiresApiKey: boolean; hasApiKey: boolean; implemented: boolean }>>("get_translation_provider_settings");
+      const providers = await invoke<Array<{ kind: string; name: string; enabled: boolean; model: string; baseUrl: string; requiresApiKey: boolean; hasApiKey: boolean; implemented: boolean }>>("get_translation_provider_settings");
       translationEngines = providers.filter((provider) =>
         provider.name === "Google Translate" ||
         (provider.implemented && provider.enabled && (
-          provider.name === "Agent CLI"
+          provider.kind === "agent_cli"
             ? Boolean(provider.model.trim())
             : (provider.name === "DeepL" || Boolean(provider.model.trim())) &&
               Boolean(provider.baseUrl.trim()) &&

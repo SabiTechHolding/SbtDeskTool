@@ -3,8 +3,11 @@ use crate::engine::translator::TranslateResult;
 use tauri::State;
 
 #[tauri::command]
-pub fn get_translation_providers() -> Vec<crate::engine::providers::ProviderInfo> {
-    crate::engine::providers::list()
+pub fn get_translation_providers(
+    state: State<SettingsState>,
+) -> Result<Vec<crate::commands::providers::ProviderSettingsView>, String> {
+    let settings = state.0.lock().map_err(|error| error.to_string())?;
+    Ok(crate::commands::providers::views(&settings))
 }
 
 #[tauri::command]
