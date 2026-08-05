@@ -1,5 +1,12 @@
 # SbtDeskTool changelog
 
+## v1.26.8.5 — Translation Provider Reliability and Agent CLI
+
+- Fixed provider connection tests to use the current unsaved enablement, endpoint, model, and API key values.
+- Preserved stored API keys when Save or Test is used with a blank API key field.
+- Added Agent CLI as a translation provider for any non-interactive AI CLI, with configurable executable and arguments, prompt substitution or stdin input, stdout output, batching, fallback, retries, and timeout handling.
+- Fixed Translate status to report the actual source, such as Google Translate, Dictionary, Translation Memory, or cache, instead of labeling every fresh translation as AI.
+
 ## v1.26.7.31 — Updater Reliability Fixes
 
 - Fixed automatic updates by publishing permanent tagged GitHub download URLs instead of temporary draft-release URLs.

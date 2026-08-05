@@ -53,6 +53,12 @@ pub fn list() -> Vec<ProviderInfo> {
             ready: true,
             requires_configuration: true,
         },
+        ProviderInfo {
+            id: "agent_cli",
+            name: "Agent CLI",
+            ready: true,
+            requires_configuration: true,
+        },
     ]
 }
 
@@ -68,8 +74,9 @@ mod tests {
     use super::{is_ready, GOOGLE_TRANSLATE};
 
     #[test]
-    fn google_and_local_provider_implementations_are_available() {
+    fn google_local_and_agent_cli_provider_implementations_are_available() {
         assert!(is_ready(GOOGLE_TRANSLATE));
         assert!(is_ready("Local AI"));
+        assert!(is_ready("Agent CLI"));
     }
 }

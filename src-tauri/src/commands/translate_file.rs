@@ -253,12 +253,12 @@ pub async fn translate_excel_file(
     let primary_uses_prompt_batch = connections.first().is_some_and(|provider| {
         matches!(
             provider.id.as_str(),
-            "gemini" | "openai" | "claude" | "local"
+            "gemini" | "openai" | "claude" | "local" | "agent_cli"
         )
     });
     let job_size = match connections.first().map(|provider| provider.id.as_str()) {
         Some("google") => GOOGLE_JOB_ITEMS,
-        Some("gemini" | "openai" | "claude" | "local") => AI_JOB_ITEMS,
+        Some("gemini" | "openai" | "claude" | "local" | "agent_cli") => AI_JOB_ITEMS,
         _ => 1,
     };
     let job_character_limit = if primary_uses_prompt_batch {

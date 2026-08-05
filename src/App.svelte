@@ -379,7 +379,16 @@
   async function refreshTranslationEngines() {
     try {
       const providers = await invoke<Array<{ name: string; enabled: boolean; model: string; baseUrl: string; requiresApiKey: boolean; hasApiKey: boolean; implemented: boolean }>>("get_translation_provider_settings");
-      translationEngines = providers.filter((provider) => provider.name === "Google Translate" || (provider.implemented && provider.enabled && (provider.name === "DeepL" || provider.model.trim()) && provider.baseUrl.trim() && (!provider.requiresApiKey || provider.hasApiKey || provider.name === "Local AI"))).map((provider) => provider.name);
+      translationEngines = providers.filter((provider) =>
+        provider.name === "Google Translate" ||
+        (provider.implemented && provider.enabled && (
+          provider.name === "Agent CLI"
+            ? Boolean(provider.model.trim())
+            : (provider.name === "DeepL" || Boolean(provider.model.trim())) &&
+              Boolean(provider.baseUrl.trim()) &&
+              (!provider.requiresApiKey || provider.hasApiKey || provider.name === "Local AI")
+        )),
+      ).map((provider) => provider.name);
       if (!translationEngines.includes(engine)) engine = "Google Translate";
     } catch { translationEngines = ["Google Translate"]; }
   }

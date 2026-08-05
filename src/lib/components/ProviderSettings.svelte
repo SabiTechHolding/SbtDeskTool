@@ -66,7 +66,7 @@
           retries: selected.retries,
           concurrency: selected.concurrency,
         },
-        apiKey: selected.requiresApiKey ? apiKey : null,
+        apiKey: selected.requiresApiKey && apiKey.trim() ? apiKey : null,
       });
       fallbackIds = await invoke<string[]>("save_translation_fallback", { ids: fallbackIds });
       policy = await invoke<Policy>("save_translation_policy", { policy });
@@ -85,7 +85,18 @@
     error = "";
     message = "";
     try {
-      message = await invoke<string>("test_translation_provider", { engine: selected.name });
+      message = await invoke<string>("test_translation_provider", {
+        config: {
+          id: selected.id,
+          enabled: selected.enabled,
+          model: selected.model,
+          baseUrl: selected.baseUrl,
+          timeoutSeconds: selected.timeoutSeconds,
+          retries: selected.retries,
+          concurrency: selected.concurrency,
+        },
+        apiKey: selected.requiresApiKey && apiKey.trim() ? apiKey : null,
+      });
     } catch (reason) {
       error = `Connection test failed: ${reason}`;
     } finally {
@@ -152,6 +163,11 @@
             <h3>{selected.name}</h3>
             {#if selected.id === "google"}
               <p class="hint">Built-in Google Translate engine. No API key is required.</p>
+            {:else if selected.id === "agent_cli"}
+              <p class="hint">Run any non-interactive AI agent CLI directly, without a shell.</p>
+              <label>Executable<input value={selected.model} oninput={(event) => update("model", event.currentTarget.value)} placeholder="codex, claude, gemini, or full path" /></label>
+              <label>Arguments (one per line)<textarea value={selected.baseUrl} oninput={(event) => update("baseUrl", event.currentTarget.value)} placeholder={"exec\n-\n--color\nnever"}></textarea></label>
+              <p class="hint cli-hint">Use {"{prompt}"} inside an argument, or omit it to send the translation prompt through stdin. Standard output is used as the translation.</p>
             {:else}
               <label>Model<input value={selected.model} oninput={(event) => update("model", event.currentTarget.value)} placeholder={selected.id === "deepl" ? "Not required" : "Provider model"} /></label>
               <label>Base URL<input value={selected.baseUrl} oninput={(event) => update("baseUrl", event.currentTarget.value)} placeholder="Provider endpoint" /></label>
@@ -220,7 +236,8 @@
   nav button{display:flex;justify-content:space-between;width:100%;padding:8px;border:0;border-radius:4px;color:var(--fg2);background:transparent;font:inherit;font-size:12px;cursor:pointer}
   nav button.active,nav button:hover{color:var(--fg);background:var(--btn-hover)}nav small{color:var(--warning);font-size:10px}nav small.ready{color:var(--accent)}
   .form{padding:16px;overflow:auto}.form>label:not(.toggle){display:grid;gap:5px;margin-top:13px;color:var(--fg2);font-size:11px}
-  input:not([type="checkbox"]){width:100%;height:29px;box-sizing:border-box;padding:0 8px;color:var(--fg);background:var(--combo-bg);border:1px solid var(--border);border-radius:3px}
+  input:not([type="checkbox"]),textarea{width:100%;box-sizing:border-box;color:var(--fg);background:var(--combo-bg);border:1px solid var(--border);border-radius:3px}
+  input:not([type="checkbox"]){height:29px;padding:0 8px}textarea{min-height:92px;padding:7px 8px;resize:vertical;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}.cli-hint{margin-top:7px}
   .toggle{display:flex;align-items:center;gap:7px;margin-top:17px;font-size:12px}.key-row{display:flex;align-items:center;justify-content:space-between;margin-top:6px;color:var(--fg2);font-size:10px}
   .limits{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:13px}.limits label,.ttl{display:grid;gap:5px;color:var(--fg2);font-size:10px}.ttl{grid-template-columns:1fr 100px;align-items:center}.ttl input{height:26px!important}
   .key-row button,footer button,.fallback-row button{height:28px;padding:0 9px;border:1px solid var(--border);border-radius:3px;color:var(--fg);background:var(--bg2);font:inherit;font-size:11px;cursor:pointer}

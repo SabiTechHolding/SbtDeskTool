@@ -137,6 +137,10 @@ fn has_secret(id: &str) -> bool {
         .is_ok()
 }
 
+fn requires_api_key(id: &str) -> bool {
+    matches!(id, "gemini" | "openai" | "claude" | "deepl")
+}
+
 pub(crate) fn connection(
     settings: &Map<String, Value>,
     name: &str,
@@ -145,10 +149,26 @@ pub(crate) fn connection(
         .into_iter()
         .find(|provider| provider.name == name)
         .ok_or_else(|| format!("Unknown translation provider: {name}"))?;
+    let config = load_configs(settings)
+        .remove(provider.id)
+        .unwrap_or_else(|| defaults(provider.id));
+    let api_key = stored_api_key(provider.id);
+    connection_from_config(provider, config, api_key)
+}
+
+fn stored_api_key(id: &str) -> Option<String> {
+    if !requires_api_key(id) {
+        return None;
+    }
+    entry(id).ok().and_then(|entry| entry.get_password().ok())
+}
+
+fn connection_from_config(
+    provider: crate::engine::providers::ProviderInfo,
+    config: ProviderConfig,
+    api_key: Option<String>,
+) -> Result<ProviderConnection, String> {
     if provider.id == "google" {
-        let config = load_configs(settings)
-            .remove(provider.id)
-            .unwrap_or_else(|| defaults(provider.id));
         return Ok(ProviderConnection {
             id: provider.id.into(),
             name: provider.name.into(),
@@ -161,24 +181,28 @@ pub(crate) fn connection(
         });
     }
     if !provider.ready {
-        return Err(format!("{name} is not implemented yet."));
+        return Err(format!("{} is not implemented yet.", provider.name));
     }
-    let config = load_configs(settings)
-        .remove(provider.id)
-        .unwrap_or_else(|| defaults(provider.id));
     if !config.enabled {
-        return Err(format!("{name} is disabled in Translation Providers."));
+        return Err(format!(
+            "{} is disabled in Translation Providers.",
+            provider.name
+        ));
     }
-    if (provider.id != "deepl" && config.model.trim().is_empty())
-        || config.base_url.trim().is_empty()
+    if provider.id == "agent_cli" && config.model.trim().is_empty() {
+        return Err("Configure an executable for Agent CLI.".into());
+    }
+    if provider.id != "agent_cli"
+        && ((provider.id != "deepl" && config.model.trim().is_empty())
+            || config.base_url.trim().is_empty())
     {
-        return Err(format!("Configure a model and base URL for {name}."));
+        return Err(format!(
+            "Configure a model and base URL for {}.",
+            provider.name
+        ));
     }
-    let api_key = entry(provider.id)
-        .ok()
-        .and_then(|entry| entry.get_password().ok());
-    if provider.id != "local" && api_key.is_none() {
-        return Err(format!("Configure an API key for {name}."));
+    if requires_api_key(provider.id) && api_key.is_none() {
+        return Err(format!("Configure an API key for {}.", provider.name));
     }
     Ok(ProviderConnection {
         id: provider.id.into(),
@@ -239,7 +263,7 @@ fn views(settings: &Map<String, Value>) -> Vec<ProviderSettingsView> {
                 .get(provider.id)
                 .cloned()
                 .unwrap_or_else(|| defaults(provider.id));
-            let requires_api_key = provider.id != "google";
+            let requires_api_key = requires_api_key(provider.id);
             ProviderSettingsView {
                 id: provider.id.into(),
                 name: provider.name.into(),
@@ -378,12 +402,23 @@ pub fn clear_translation_provider_key(
 
 #[tauri::command]
 pub async fn test_translation_provider(
-    engine: String,
+    mut config: ProviderConfig,
+    api_key: Option<String>,
     state: State<'_, SettingsState>,
 ) -> Result<String, String> {
     let (provider, strategy) = {
         let settings = state.0.lock().map_err(|error| error.to_string())?;
-        let provider = connection(&settings, &engine)?;
+        let registered = crate::engine::providers::list()
+            .into_iter()
+            .find(|provider| provider.id == config.id)
+            .ok_or_else(|| "Unknown translation provider".to_string())?;
+        config.timeout_seconds = config.timeout_seconds.clamp(5, 600);
+        config.retries = config.retries.min(10);
+        config.concurrency = config.concurrency.clamp(1, 32);
+        let api_key = api_key
+            .filter(|key| !key.trim().is_empty())
+            .or_else(|| stored_api_key(registered.id));
+        let provider = connection_from_config(registered, config, api_key)?;
         let strategy = settings
             .get("network_strategy")
             .and_then(|value| value.as_u64())
@@ -391,4 +426,67 @@ pub async fn test_translation_provider(
         (provider, strategy)
     };
     crate::engine::translation_manager::test_connection(provider, strategy).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{connection_from_config, defaults};
+
+    fn provider(id: &str) -> crate::engine::providers::ProviderInfo {
+        crate::engine::providers::list()
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .expect("registered provider")
+    }
+
+    #[test]
+    fn connection_test_uses_current_enabled_form_and_new_api_key() {
+        let mut config = defaults("openai");
+        config.enabled = true;
+
+        let connection =
+            connection_from_config(provider("openai"), config, Some("new-form-key".into()))
+                .expect("current form config should be testable before save");
+
+        assert_eq!(connection.id, "openai");
+        assert_eq!(connection.api_key.as_deref(), Some("new-form-key"));
+    }
+
+    #[test]
+    fn connection_test_rejects_disabled_current_form() {
+        let error = connection_from_config(
+            provider("openai"),
+            defaults("openai"),
+            Some("new-form-key".into()),
+        )
+        .expect_err("disabled current form");
+
+        assert_eq!(error, "OpenAI is disabled in Translation Providers.");
+    }
+
+    #[test]
+    fn agent_cli_uses_model_as_executable_and_base_url_as_argument_lines() {
+        let mut config = defaults("agent_cli");
+        config.enabled = true;
+        config.model = "codex".into();
+        config.base_url = "exec\n-\n--color\nnever".into();
+
+        let connection = connection_from_config(provider("agent_cli"), config, None)
+            .expect("configured Agent CLI");
+
+        assert_eq!(connection.model, "codex");
+        assert_eq!(connection.base_url, "exec\n-\n--color\nnever");
+        assert!(connection.api_key.is_none());
+    }
+
+    #[test]
+    fn agent_cli_requires_an_executable() {
+        let mut config = defaults("agent_cli");
+        config.enabled = true;
+
+        let error = connection_from_config(provider("agent_cli"), config, None)
+            .expect_err("missing executable");
+
+        assert_eq!(error, "Configure an executable for Agent CLI.");
+    }
 }

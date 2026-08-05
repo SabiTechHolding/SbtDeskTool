@@ -70,6 +70,13 @@
     return text.match(/.*(?:\r\n|\n|\r)|.+$/g) ?? (text ? [text] : []);
   }
 
+  function statusSourceLabel(source: string): string {
+    if (source === "Dictionary") return "dictionary";
+    if (source.startsWith("Translation Memory")) return "memory";
+    if (source.startsWith("Cache")) return "cache";
+    return source || "provider";
+  }
+
   let languageSignature = "";
   $effect(() => {
     const signature = `${engine}|${srcLang}|${destLang}`;
@@ -116,7 +123,7 @@
     const newUnits: TranUnit[] = [];
     let newCount = 0;
     let reusedCount = 0;
-    let memoryHits = 0;
+    const sourceCounts = new Map<string, number>();
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -179,7 +186,10 @@
           }
         }
         newCount = toTranslate.length;
-        memoryHits = results.filter((result) => result.source.startsWith("Translation Memory")).length;
+        for (const result of results) {
+          const label = statusSourceLabel(result.source);
+          sourceCounts.set(label, (sourceCounts.get(label) ?? 0) + 1);
+        }
       }
 
       // Reassemble
@@ -207,9 +217,12 @@
 
       // Status update with stats
       const elapsed = performance.now() - startTime;
+      const sourceBreakdown = [...sourceCounts.entries()]
+        .map(([source, count]) => `${count} ${source}`)
+        .join(", ");
       onStatusUpdate?.(
         newCount > 0
-          ? `Translated: ${newCount - memoryHits} AI, ${memoryHits} memory, ${reusedCount} reused`
+          ? `Translated: ${sourceBreakdown}, ${reusedCount} reused`
           : `Translated: all ${reusedCount} reused`,
         "success",
         elapsed,

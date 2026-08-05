@@ -4,9 +4,11 @@ use crate::{
 };
 use std::{
     collections::HashMap,
+    process::Stdio,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
+use tokio::io::AsyncWriteExt;
 
 #[derive(Clone)]
 struct CacheEntry {
@@ -152,7 +154,10 @@ pub async fn translate_many_with_fallback(
 }
 
 fn supports_prompt_batch(provider_id: &str) -> bool {
-    matches!(provider_id, "gemini" | "openai" | "claude" | "local")
+    matches!(
+        provider_id,
+        "gemini" | "openai" | "claude" | "local" | "agent_cli"
+    )
 }
 
 async fn translate_prompt_batch_with_fallback(
@@ -498,6 +503,7 @@ async fn call_prompt_provider(
         "local" | "openai" => call_openai_prompt(prompt, provider).await,
         "gemini" => call_gemini_prompt(prompt, provider).await,
         "claude" => call_claude_prompt(prompt, provider).await,
+        "agent_cli" => call_agent_cli(prompt, provider).await,
         _ => Err(format!("{} does not support prompt batches", provider.name)),
     }
 }
@@ -515,6 +521,7 @@ async fn translate_remote_once(
         "gemini" => translate_gemini(text, src, dest, provider).await?,
         "claude" => translate_claude(text, src, dest, provider).await?,
         "deepl" => translate_deepl(text, src, dest, provider).await?,
+        "agent_cli" => translate_agent_cli(text, src, dest, provider).await?,
         _ => return Err(format!("{} is not implemented yet.", provider.name)),
     };
     Ok(result)
@@ -527,6 +534,93 @@ pub async fn test_connection(provider: ProviderConnection, strategy: u8) -> Resu
 
 fn translation_prompt(text: &str, src: &str, dest: &str) -> String {
     format!("Translate the following text from {src} to {dest}. Return only the translation; preserve line breaks and placeholders such as __SBT_TERM_0__ exactly.\n\n{text}")
+}
+
+async fn translate_agent_cli(
+    text: &str,
+    src: &str,
+    dest: &str,
+    provider: &ProviderConnection,
+) -> Result<translator::TranslateResult, String> {
+    let translated = call_agent_cli(&translation_prompt(text, src, dest), provider).await?;
+    Ok(translator::TranslateResult {
+        translated,
+        detected_lang: (src != "auto").then(|| src.to_string()),
+        source: provider.name.clone(),
+        strategy: 0,
+    })
+}
+
+fn agent_cli_arguments(arguments: &str, prompt: &str) -> (Vec<String>, bool) {
+    let mut uses_prompt_argument = false;
+    let arguments = arguments
+        .lines()
+        .map(str::trim)
+        .filter(|argument| !argument.is_empty())
+        .map(|argument| {
+            if argument.contains("{prompt}") {
+                uses_prompt_argument = true;
+                argument.replace("{prompt}", prompt)
+            } else {
+                argument.to_string()
+            }
+        })
+        .collect();
+    (arguments, uses_prompt_argument)
+}
+
+async fn call_agent_cli(prompt: &str, provider: &ProviderConnection) -> Result<String, String> {
+    let executable = provider.model.trim();
+    if executable.is_empty() {
+        return Err("Agent CLI executable is missing".into());
+    }
+    let (arguments, uses_prompt_argument) = agent_cli_arguments(&provider.base_url, prompt);
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args(arguments)
+        .stdin(if uses_prompt_argument {
+            Stdio::null()
+        } else {
+            Stdio::piped()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Unable to start Agent CLI executable '{executable}': {error}"))?;
+
+    if !uses_prompt_argument {
+        let mut stdin = child.stdin.take().ok_or("Unable to open Agent CLI stdin")?;
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .map_err(|error| format!("Unable to write Agent CLI prompt: {error}"))?;
+        drop(stdin);
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|error| format!("Unable to wait for Agent CLI: {error}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !output.status.success() {
+        let detail = if stderr.is_empty() { &stdout } else { &stderr };
+        return Err(if detail.is_empty() {
+            format!("Agent CLI exited with {}", output.status)
+        } else {
+            format!("Agent CLI exited with {}: {detail}", output.status)
+        });
+    }
+    if stdout.is_empty() {
+        return Err(if stderr.is_empty() {
+            "Agent CLI returned no translation".into()
+        } else {
+            format!("Agent CLI returned no translation: {stderr}")
+        });
+    }
+    Ok(stdout)
 }
 
 fn protect_dictionary_terms(
@@ -555,9 +649,25 @@ fn restore_dictionary_terms(text: &mut String, replacements: &[(String, String)]
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_batch_translations, protect_dictionary_terms, redact_provider_error,
-        restore_dictionary_terms, retry_delay, test_connection, translate_many_with_fallback,
+        agent_cli_arguments, parse_batch_translations, protect_dictionary_terms,
+        redact_provider_error, restore_dictionary_terms, retry_delay, test_connection,
+        translate_many_with_fallback,
     };
+
+    #[test]
+    fn agent_cli_supports_prompt_argument_or_stdin() {
+        let (arguments, uses_prompt_argument) =
+            agent_cli_arguments("exec\n--prompt\n{prompt}\n--quiet", "Hello world");
+        assert_eq!(
+            arguments,
+            vec!["exec", "--prompt", "Hello world", "--quiet"]
+        );
+        assert!(uses_prompt_argument);
+
+        let (arguments, uses_prompt_argument) = agent_cli_arguments("exec\n-", "ignored");
+        assert_eq!(arguments, vec!["exec", "-"]);
+        assert!(!uses_prompt_argument);
+    }
     use crate::commands::providers::{ProviderConnection, TranslationPolicy};
     use std::{
         io::{Read, Write},
