@@ -4122,7 +4122,7 @@ dependencies = [
 
 [[package]]
 name = "sbt-desk-tool"
-version = "1.26.8-5.59"
+version = "1.26.8-5.60"
 dependencies = [
  "chrono",
  "csv",
