@@ -110,6 +110,12 @@
   };
   let activePanelName = $derived(panelNames[activePanel] ?? activePanel);
 
+  function openExternalDiff(paths: string[]) {
+    if (paths.length !== 2) return;
+    activeTab = "diff";
+    document.dispatchEvent(new CustomEvent("diff:openPaths", { detail: paths }));
+  }
+
   function setTabStatus(tab: TabId, text: string, kind: string) {
     tabStatuses[tab] = {
       text,
@@ -210,6 +216,13 @@
     const splashRemaining = 420 - (performance.now() - splashStarted);
     if (splashRemaining > 0) await new Promise((resolve) => setTimeout(resolve, splashRemaining));
     booting = false;
+    void listen<{ paths: string[] }>("diff-open-paths", (event) => openExternalDiff(event.payload.paths));
+    try {
+      const paths = await invoke<string[]>("get_initial_diff_paths");
+      openExternalDiff(paths);
+    } catch {
+      // Command-line routing is optional in a browser/dev fallback.
+    }
 
     updateTimer = setTimeout(() => void handleCheckUpdate(undefined, false), 1500);
 

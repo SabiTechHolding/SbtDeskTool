@@ -6,7 +6,9 @@ mod models;
 
 #[allow(unused_imports)]
 use commands::{
+    cli::{get_initial_diff_paths, open_diff_paths},
     diff::compute_diff,
+    folder_diff::{compare_folders, read_folder_diff_file},
     network::{get_network_strategy, record_update_error},
     notes::{delete_note, flush_notes, list_notes, reorder_notes, save_note},
     providers::{
@@ -109,6 +111,9 @@ fn default_settings() -> serde_json::Map<String, Value> {
         Value::Number(serde_json::Number::from_f64(0.5).expect("valid ratio")),
     );
     map.insert("note_sidebar_width".into(), Value::Number(220.into()));
+    map.insert("folder_diff_left_folder".into(), Value::String(String::new()));
+    map.insert("folder_diff_right_folder".into(), Value::String(String::new()));
+    map.insert("folder_diff_filter".into(), Value::String("changes".into()));
     map
 }
 
@@ -267,6 +272,9 @@ pub fn run() {
     set_windows_app_user_model_id();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            open_diff_paths(app, &args, &cwd);
+        }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -310,6 +318,9 @@ pub fn run() {
             clear_translation_provider_key,
             test_translation_provider,
             compute_diff,
+            get_initial_diff_paths,
+            compare_folders,
+            read_folder_diff_file,
             list_notes,
             save_note,
             delete_note,

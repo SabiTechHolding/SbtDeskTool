@@ -40,6 +40,9 @@ export interface AppSettings {
   diff_find_regex: boolean;
   diff_left_ratio: number;
   note_sidebar_width: number;
+  folder_diff_left_folder: string;
+  folder_diff_right_folder: string;
+  folder_diff_filter: "changes" | "all" | "different" | "left_only" | "right_only";
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -82,6 +85,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   diff_find_regex: false,
   diff_left_ratio: 0.5,
   note_sidebar_width: 220,
+  folder_diff_left_folder: "",
+  folder_diff_right_folder: "",
+  folder_diff_filter: "changes",
 };
 
 let cached: AppSettings | null = null;

@@ -396,12 +396,16 @@
               <label><input type="checkbox" bind:checked={policy.saveTranslationMemory} /> Save new provider translations to Memory</label>
             </section>
 
-            {#if message}<p class="success">{message}</p>{/if}
-            {#if error}<p class="error">{error}</p>{/if}
             <footer>
-              <button onclick={testConnection} disabled={busy || !selected.implemented}>Test connection</button>
-              <button onclick={onclose}>Close</button>
-              <button class="primary" onclick={save} disabled={busy}>{busy ? "Working..." : "Save"}</button>
+              <div class="footer-message" aria-live="polite">
+                {#if message}<p class="success">{message}</p>{/if}
+                {#if error}<p class="error">{error}</p>{/if}
+              </div>
+              <div class="footer-actions">
+                <button onclick={testConnection} disabled={busy || !selected.implemented}>Test connection</button>
+                <button onclick={onclose}>Close</button>
+                <button class="primary" onclick={save} disabled={busy}>{busy ? "Working..." : "Save"}</button>
+              </div>
             </footer>
           </div>
         {/if}
@@ -431,6 +435,6 @@
   .fallback{margin-top:18px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:5px}.fallback>p{margin:4px 0 8px;color:var(--fg2);font-size:10px}
   .fallback-row{display:flex;align-items:center;gap:5px;min-height:30px}.fallback-row label{flex:1;font-size:11px}.fallback-row span{width:25px;color:var(--fg2);font-size:10px}.fallback-row button{width:26px;padding:0}
   .policy{display:grid;gap:7px}.policy p{margin-bottom:2px}.policy label{font-size:11px}
-  .success,.error{margin-top:10px;font-size:11px}.success{color:var(--accent)}.error{color:var(--error)}footer{position:sticky;z-index:2;bottom:-16px;display:flex;justify-content:flex-end;gap:7px;margin:20px -16px -16px;padding:12px 16px;background:var(--bg3);border-top:1px solid var(--border)}.primary{color:var(--bg)!important;border-color:var(--accent)!important;background:var(--accent)!important}.loading{padding:30px;color:var(--fg2)}button:disabled{opacity:.55;cursor:default}
+  .success,.error{margin:0;font-size:11px}.success{color:var(--accent)}.error{color:var(--error)}footer{position:sticky;z-index:2;bottom:-16px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:20px -16px -16px;padding:12px 16px;background:var(--bg3);border-top:1px solid var(--border)}.footer-message{min-width:0;flex:1}.footer-actions{display:flex;flex:0 0 auto;gap:7px}.primary{color:var(--bg)!important;border-color:var(--accent)!important;background:var(--accent)!important}.loading{padding:30px;color:var(--fg2)}button:disabled{opacity:.55;cursor:default}
   @media(max-width:560px){.body{grid-template-columns:1fr}nav{flex-direction:row;border-right:0;border-bottom:1px solid var(--border);overflow-x:auto}.provider-items{display:flex;overflow:visible}nav button{min-width:max-content}.add-actions{display:flex;margin:0 0 0 6px}}
 </style>

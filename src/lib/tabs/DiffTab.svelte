@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import DiffEditor from "../components/DiffEditor.svelte";
+  import FolderDiffPanel from "../components/FolderDiffPanel.svelte";
   import FindBar from "../components/FindBar.svelte";
   import AppIcon from "../components/AppIcon.svelte";
   import { saveSetting } from "../stores/settings";
@@ -64,6 +65,11 @@
   let detailKind = $state("");
   let showDetail = $state(true);
   let showCenterControls = $state(false);
+  let compareMode = $state<"text" | "folder">("text");
+  let selectedFolderFile = $state("");
+  let savedTextDiff = $state({ left: "", right: "" });
+  let folderSidebarWidth = $state(360);
+  let diffRoot = $state<HTMLDivElement>();
   let leftFindOpen = $state(false);
   let rightFindOpen = $state(false);
   let editorGeneration = $state(0);
@@ -208,6 +214,104 @@
     }
   }
 
+  function resizeFolderSidebar(width: number) {
+    const max = Math.max(280, (diffRoot?.clientWidth ?? 800) * 0.65);
+    folderSidebarWidth = Math.round(Math.max(280, Math.min(max, width)));
+  }
+
+  function startFolderResize(event: PointerEvent) {
+    if (!diffRoot) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = folderSidebarWidth;
+    const move = (moveEvent: PointerEvent) => resizeFolderSidebar(startWidth + moveEvent.clientX - startX);
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
+
+  function handleFolderSplitterKey(event: KeyboardEvent) {
+    if (event.key === "ArrowLeft") resizeFolderSidebar(folderSidebarWidth - 24);
+    if (event.key === "ArrowRight") resizeFolderSidebar(folderSidebarWidth + 24);
+  }
+
+  function clearFolderPreview() {
+    diffRequestId += 1;
+    selectedFolderFile = "";
+    leftText = "";
+    rightText = "";
+    diffData = [];
+    diffStats = { added: 0, removed: 0, changed_blocks: 0 };
+    detailLeft = "";
+    detailRight = "";
+    detailLeftTokens = [];
+    detailRightTokens = [];
+    detailKind = "";
+  }
+
+  function enterFolderCompare() {
+    if (compareMode === "folder") return;
+    savedTextDiff = { left: leftText, right: rightText };
+    compareMode = "folder";
+    clearFolderPreview();
+  }
+
+  function exitFolderCompare() {
+    if (compareMode !== "folder") return;
+    compareMode = "text";
+    selectedFolderFile = "";
+    leftText = savedTextDiff.left;
+    rightText = savedTextDiff.right;
+    void runDiff();
+  }
+
+  function toggleFolderCompare() {
+    if (compareMode === "folder") exitFolderCompare();
+    else enterFolderCompare();
+  }
+
+  $effect(() => {
+    if (compact && compareMode === "folder") exitFolderCompare();
+  });
+
+  function openFolderFiles(left: string, right: string, label: string) {
+    leftText = left;
+    selectedFolderFile = label;
+    rightText = right;
+    queueMicrotask(() => findBar?.refresh());
+    void runDiff();
+    onStatusUpdate?.(`Loaded ${label} from folder comparison`, "normal");
+  }
+
+  async function openDiffPaths(paths: string[]) {
+    if (paths.length !== 2) return;
+    try {
+      const [left, right] = await Promise.all(paths.map((path) => invoke<string>("read_folder_diff_file", { path })));
+      if (compareMode === "folder") {
+        compareMode = "text";
+      }
+      selectedFolderFile = "";
+      leftText = left;
+      rightText = right;
+      await runDiff();
+      onStatusUpdate?.("Opened files from command line", "success");
+    } catch {
+      enterFolderCompare();
+      await tick();
+      document.dispatchEvent(new CustomEvent("folder:setPaths", { detail: paths }));
+    }
+  }
+
+  function handleOpenDiffPaths(event: Event) {
+    const paths = (event as CustomEvent<string[]>).detail;
+    if (Array.isArray(paths)) void openDiffPaths(paths);
+  }
+
+  export function openPaths(paths: string[]) { void openDiffPaths(paths); }
+
   function toggleDetail() { showDetail = !showDetail; }
 
   function toggleWordDiff() {
@@ -276,6 +380,7 @@
   }
 
   onMount(() => {
+    document.addEventListener("diff:openPaths", handleOpenDiffPaths);
     document.addEventListener("diff:setLeft", handleDropEvent);
     void runDiff();
   });
@@ -289,15 +394,18 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="diff-tab" onkeydown={handleKeyDown} onwheel={handleWheel}>
+<div bind:this={diffRoot} class="diff-tab" class:folder-layout={compareMode === "folder" && !compact} style={`--folder-sidebar-width: ${folderSidebarWidth}px`} onkeydown={handleKeyDown} onwheel={handleWheel}>
   {#if !compact}
   <div class="diff-header">
     <div class="pane-header left-header">
-      <span class="pane-title">◀ Left</span>
+      <span class="pane-title" title={compareMode === "folder" ? selectedFolderFile : "Left"}>{compareMode === "folder" ? selectedFolderFile || "Select a file" : "◀ Left"}</span>
       <button class="pane-btn" onclick={clearLeft} title="Clear Left" aria-label="Clear Left"><AppIcon name="clear" size={14} /><span class="btn-label">Clear</span></button>
       <button class="pane-btn" onclick={() => copyText(leftText)} title="Copy Left" aria-label="Copy Left"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
     </div>
       <div class="diff-actions">
+        <div class="control-group" aria-label="Comparison mode">
+          <button class="icon-btn folder-mode-btn" class:toggled={compareMode === "folder"} onclick={toggleFolderCompare} title="Show or hide folder comparison"><AppIcon name="diff" size={14} /><span class="btn-label">Folder</span></button>
+        </div>
         <div class="control-group diff-view-group" aria-label="Diff text display">
           <button class="icon-btn" class:toggled={wordDiff} aria-pressed={wordDiff} onclick={toggleWordDiff} title="Highlight changed words and characters"><AppIcon name="word" size={14} /><span class="btn-label">Word</span></button>
           <button class="icon-btn" class:toggled={ignoreWhitespace} aria-pressed={ignoreWhitespace} onclick={toggleIgnoreWhitespace} title="Ignore whitespace-only changes"><AppIcon name="ignore-whitespace" size={14} /><span class="btn-label">Ignore WS</span></button>
@@ -323,15 +431,24 @@
         </div>
       </div>
     <div class="pane-header right-header">
-      <span class="pane-title">▶ Right</span>
+      <span class="pane-title" title={compareMode === "folder" ? selectedFolderFile : "Right"}>{compareMode === "folder" ? selectedFolderFile || "Select a file" : "▶ Right"}</span>
       <button class="pane-btn" onclick={clearRight} title="Clear Right" aria-label="Clear Right"><AppIcon name="clear" size={14} /><span class="btn-label">Clear</span></button>
       <button class="pane-btn" onclick={() => copyText(rightText)} title="Copy Right" aria-label="Copy Right"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
     </div>
   </div>
   {/if}
 
+  {#if compareMode === "folder" && !compact}
+    <aside class="folder-sidebar" aria-label="Folder comparison">
+      <FolderDiffPanel onOpenFiles={openFolderFiles} {onStatusUpdate} />
+    </aside>
+    <div class="folder-splitter" role="separator" aria-orientation="vertical" aria-label="Resize folder panel" tabindex="0" onpointerdown={startFolderResize} onkeydown={handleFolderSplitterKey}></div>
+  {/if}
+
   {#if findOpen}
-    <FindBar bind:this={findBar} settingsPrefix="diff" onSearch={handleFind} onClose={closeCommonFind} />
+    <div class="diff-find">
+      <FindBar bind:this={findBar} settingsPrefix="diff" onSearch={handleFind} onClose={closeCommonFind} />
+    </div>
   {/if}
 
   <div class="diff-body">
@@ -400,11 +517,28 @@
 
 <style>
   .diff-tab { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+  .diff-tab.folder-layout { display: grid; grid-template-columns: minmax(280px, 36%) minmax(0, 1fr); grid-template-rows: 28px auto minmax(0, 1fr) auto; }
+  .folder-sidebar { min-width: 0; overflow: hidden; }
+  .folder-layout .folder-sidebar { display: flex; grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--border); }
+  .folder-layout .diff-header { grid-column: 2; grid-row: 1; }
+  .folder-layout .diff-find { grid-column: 2; grid-row: 2; min-width: 0; }
+  .folder-layout .diff-body { grid-column: 2; grid-row: 3; min-width: 0; min-height: 0; }
+  .folder-layout .detail-panel { grid-column: 2; grid-row: 4; }
+  .folder-layout .pane-header { visibility: hidden; pointer-events: none; }
+  .folder-layout .diff-actions { margin-inline: auto; }
+  .folder-layout .detail-panel { display: none; }
+  .diff-tab.folder-layout { grid-template-columns: minmax(280px, max-content) minmax(0, 1fr); }
+  .folder-layout .folder-sidebar { width: 360px; min-width: 280px; max-width: 55vw; resize: horizontal; overflow: auto; }
+  .folder-layout .folder-sidebar::-webkit-resizer { background: var(--border); }
+  .diff-tab.folder-layout { grid-template-columns: minmax(280px, var(--folder-sidebar-width)) minmax(0, 1fr); }
+  .folder-layout .folder-sidebar { width: auto; min-width: 0; max-width: none; resize: none; overflow: hidden; }
+  .folder-layout .folder-splitter { grid-column: 1; grid-row: 1 / -1; justify-self: end; width: 8px; transform: translateX(4px); cursor: col-resize; z-index: 5; touch-action: none; }
+  .folder-layout .folder-splitter:hover, .folder-layout .folder-splitter:focus { background: color-mix(in srgb, var(--accent) 55%, transparent); outline: none; }
   .diff-header { display: flex; align-items: center; height: 28px; background: var(--bg3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .pane-header { display: flex; align-items: center; gap: 4px; padding: 0 8px; }
   .left-header { flex: 1; padding-left: 0; }
   .right-header { flex: 1; justify-content: flex-end; }
-  .pane-title { font-size: 11px; font-weight: 600; color: var(--fg2); }
+  .pane-title { font-size: 11px; font-weight: 600; color: var(--fg2); padding-left: 5px; }
   .diff-actions { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
   .pane-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); padding: 0 var(--control-padding-x); background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; border-radius: var(--control-radius); }
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }

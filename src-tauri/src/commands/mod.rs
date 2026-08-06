@@ -1,4 +1,6 @@
+pub mod cli;
 pub mod diff;
+pub mod folder_diff;
 pub mod network;
 pub mod notes;
 pub mod providers;

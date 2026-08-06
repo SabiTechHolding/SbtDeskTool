@@ -328,10 +328,22 @@
     return (side === "left" ? line.left_present : line.right_present) ? rawLine : undefined;
   }
 
-  function focusDecoration(lineNumber: number | undefined): monaco.editor.IModelDeltaDecoration[] {
-    if (lineNumber === undefined) return [];
+  function validLineNumber(model: monaco.editor.ITextModel, lineNumber: number | undefined) {
+    return lineNumber !== undefined && lineNumber >= 1 && lineNumber <= model.getLineCount()
+      ? lineNumber
+      : undefined;
+  }
+
+  function lineContentAt(model: monaco.editor.ITextModel, lineNumber: number | undefined) {
+    const validLine = validLineNumber(model, lineNumber);
+    return validLine === undefined ? "" : model.getLineContent(validLine);
+  }
+
+  function focusDecoration(model: monaco.editor.ITextModel, lineNumber: number | undefined): monaco.editor.IModelDeltaDecoration[] {
+    const validLine = validLineNumber(model, lineNumber);
+    if (validLine === undefined) return [];
     return [{
-      range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+      range: new monaco.Range(validLine, 1, validLine, 1),
       options: {
         isWholeLine: true,
         lineNumberClassName: "sbt-diff-focused-line-number",
@@ -693,12 +705,12 @@
     focusedLine = { side, lineNumber: clampedLine };
     const pair = linePairForSelection(side, clampedLine);
     if (!pair) return;
-    const leftText = pair.leftLine ? leftModel.getLineContent(pair.leftLine) : "";
-    const rightText = pair.rightLine ? rightModel.getLineContent(pair.rightLine) : "";
+    const leftText = lineContentAt(leftModel, pair.leftLine);
+    const rightText = lineContentAt(rightModel, pair.rightLine);
     const kind = pair.kind === "equal" && leftText !== rightText ? "replace" : pair.kind;
     const { leftTokens, rightTokens } = detailTokens(leftText, rightText, kind);
-    leftFocusDecorations?.set(focusDecoration(pair.leftLine));
-    rightFocusDecorations?.set(focusDecoration(pair.rightLine));
+    leftFocusDecorations?.set(focusDecoration(leftModel, pair.leftLine));
+    rightFocusDecorations?.set(focusDecoration(rightModel, pair.rightLine));
     onDetailChange?.(leftText, rightText, kind, leftTokens, rightTokens);
   }
 
