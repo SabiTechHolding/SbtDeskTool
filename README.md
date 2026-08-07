@@ -17,6 +17,7 @@ SbtDeskTool is a compact desktop toolbox for comparing, translating and organizi
 ## Features
 
 - **Diff:** editable side-by-side comparison, two alignment algorithms, word-level highlighting, whitespace controls, optional copy/revert actions, focused-line detail and both common and per-editor search.
+- **Folder Diff:** recursive side-by-side folder comparison with result filtering (all / changes / different / left-only / right-only), per-file two-panel preview for images, PDF, audio and video, text/binary diff for any file, and a dedicated placeholder preview for files larger than 4 MB.
 - **Translate:** automatic translation, language detection, incremental reuse of unchanged lines, language swap, common Source/Translated search and network fallback strategies.
 - **Notes:** local Markdown notes with line numbers, filtering, preview, auto-save, resizable list and quick selection in Compact mode.
 - **Workspace:** independent wrap, zoom and status state for each tab; dark/light themes; drag-and-drop; Compact mode; always-on-top; tray controls; and a global show/hide shortcut.

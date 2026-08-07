@@ -2,10 +2,13 @@
 
 ## v1.26.8.7 — Folder Comparison and Developer Tooling
 
-- Added folder comparison engine with recursive file difference computation and changes-only filtering.
-- Added Folder Diff panel UI with left/right folder path selection and output table.
+- Added folder comparison engine with recursive file difference computation and configurable result filtering (all / changes / different / left-only / right-only).
+- Added Folder Diff panel UI with left/right folder path selection, swap, clear, and file list showing status and sizes.
 - Added `--folder-diff-left` and `--folder-diff-right` CLI arguments for quick folder diff launches.
 - Added persistent folder diff configuration stored per folder pair.
+- Added two-panel preview for image, PDF, audio, and video files via the asset protocol, with Text Diff / Preview toggle.
+- Added text/binary-aware file preview with 4 MB head truncation, hexdump for binary content, and multi-encoding fallback (UTF-8, BOM, Windows-1252, Shift-JIS, EUC-JP, GBK, Big5).
+- Files larger than 4 MB open in a two-panel preview showing per-side file sizes; switching to Text Diff loads the truncated text/binary content.
 
 ## v1.26.8.5 — Translation Provider Reliability and Agent CLI
 

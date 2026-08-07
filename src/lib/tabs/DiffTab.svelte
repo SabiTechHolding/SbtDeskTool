@@ -643,7 +643,6 @@ async function showTextDiff() {
   .folder-layout .detail-panel { grid-column: 2; grid-row: 4; }
   .folder-layout .pane-header { visibility: hidden; pointer-events: none; }
   .folder-layout .diff-actions { margin-inline: auto; }
-  .folder-layout .detail-panel { display: none; }
   .diff-tab.folder-layout { grid-template-columns: minmax(280px, max-content) minmax(0, 1fr); }
   .folder-layout .folder-sidebar { width: 360px; min-width: 280px; max-width: 55vw; resize: horizontal; overflow: auto; }
   .folder-layout .folder-sidebar::-webkit-resizer { background: var(--border); }

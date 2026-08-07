@@ -41,7 +41,7 @@
     <header>
       <div>
         <h2>Help & shortcuts</h2>
-        <p>Quick guide for Diff, Translate and Notes.</p>
+        <p>Quick guide for Diff, Folder Diff, Translate and Notes.</p>
       </div>
       <button class="close" onclick={onclose} title="Close (Escape)">×</button>
     </header>
@@ -55,6 +55,11 @@
         <h3>Diff</h3>
         <p>Diff updates automatically. Word controls inline highlighting; Ignore WS ignores whitespace-only changes; Wrap wraps long lines; Show WS displays whitespace characters.</p>
         <p>Legacy/Advanced selects one diff algorithm. Detail shows the focused line, Actions toggles the center copy/revert gutter, and All/L/R control common or per-editor search.</p>
+      </section>
+      <section>
+        <h3>Folder Diff</h3>
+        <p>Compare two folders: choose Left and Right paths, then press Compare. Click a row to open a two-panel diff of that file.</p>
+        <p>Image, PDF, audio and video files open in Preview; the Text Diff button switches to the raw content. Files larger than 4 MB show their sizes in preview and load truncated text/binary content when switching to Text Diff. Filter buttons narrow the list to All, Changes, Different, Left-only or Right-only.</p>
       </section>
       <section>
         <h3>Translate & Notes</h3>

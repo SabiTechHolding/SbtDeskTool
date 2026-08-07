@@ -1,4 +1,4 @@
-use serde::Serialize;
+﻿use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -150,20 +150,6 @@ pub struct ReadFileResult {
     pub content: String,
 }
 
-fn is_likely_binary(bytes: &[u8]) -> bool {
-    if bytes.is_empty() {
-        return false;
-    }
-    let sample = &bytes[..bytes.len().min(8192)];
-    sample.contains(&0x00)
-        || sample
-            .iter()
-            .filter(|&&b| b < 0x08 || (b > 0x0D && b < 0x20))
-            .count() as f64
-            / sample.len() as f64
-            > 0.1
-}
-
 fn format_hexdump(bytes: &[u8]) -> String {
     let total = bytes.len().div_ceil(HEXDUMP_LINE_LEN);
     let mut out = String::with_capacity(bytes.len() * 5);
@@ -206,26 +192,13 @@ pub fn read_text_file(path: &Path) -> Result<ReadFileResult, String> {
     if !metadata.is_file() {
         return Err(format!("{} is not a file", path.display()));
     }
-    if metadata.len() > MAX_PREVIEW_BYTES {
-        let bytes = read_head(path, MAX_PREVIEW_BYTES)?;
-        return Ok(if is_likely_binary(&bytes) {
-            ReadFileResult {
-                content: format_hexdump(&bytes),
-            }
-        } else {
-            ReadFileResult {
-                content: decode_text(&bytes)?,
-            }
-        });
-    }
     let bytes = read_head(path, MAX_PREVIEW_BYTES)?;
-    if is_likely_binary(&bytes) {
+    if let Some(text) = decode_probably_text(&bytes) {
+        Ok(ReadFileResult { content: text })
+    } else {
         Ok(ReadFileResult {
             content: format_hexdump(&bytes),
         })
-    } else {
-        let text = decode_text(&bytes)?;
-        Ok(ReadFileResult { content: text })
     }
 }
 
@@ -241,38 +214,139 @@ fn read_head(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn decode_text(bytes: &[u8]) -> Result<String, String> {
+fn decode_probably_text(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() {
-        return Ok(String::new());
-    }
-    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-        return Ok(text);
+        return Some(String::new());
     }
 
-    let encoding = encoding_rs::Encoding::for_bom(bytes);
-    if let Some((enc, bom_len)) = encoding {
+    if let Some((enc, bom_len)) = encoding_rs::Encoding::for_bom(bytes) {
         let (decoded, _, _) = enc.decode(&bytes[bom_len..]);
-        return Ok(decoded.into_owned());
+        return Some(decoded.into_owned());
     }
 
-    let text = String::from_utf8_lossy(bytes);
-    if !text.contains('\u{FFFD}') {
-        return Ok(text.into_owned());
+    if bytes[..bytes.len().min(8192)].contains(&0x00) {
+        return decode_utf16_heuristic(bytes);
     }
 
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return Some(text);
+    }
+
+    if let Some(text) = decode_utf16_heuristic(bytes) {
+        return Some(text);
+    }
+
+    if is_likely_binary(bytes) {
+        return None;
+    }
+
+    Some(decode_legacy(bytes))
+}
+
+fn decode_utf16_heuristic(bytes: &[u8]) -> Option<String> {
+    let sample = &bytes[..bytes.len().min(65536)];
+    if sample.len() < 4 {
+        return None;
+    }
+    let char_count = sample.len() / 2;
+    let is_text_byte = |b: u8| b == b'\n' || b == b'\r' || b == b'\t' || (0x20..=0x7E).contains(&b);
+    let (le_text, be_text) = sample
+        .chunks_exact(2)
+        .fold((0usize, 0usize), |(le, be), pair| {
+            (
+                le + usize::from(is_text_byte(pair[0]) && pair[1] == 0x00),
+                be + usize::from(is_text_byte(pair[1]) && pair[0] == 0x00),
+            )
+        });
+    let endianness = if le_text >= char_count / 2 && le_text > be_text * 2 + 2 {
+        encoding_rs::UTF_16LE
+    } else if be_text >= char_count / 2 && be_text > le_text * 2 + 2 {
+        encoding_rs::UTF_16BE
+    } else {
+        return None;
+    };
+    let (decoded, had_error) = endianness.decode_without_bom_handling(bytes);
+    if had_error {
+        return None;
+    }
+    Some(decoded.into_owned())
+}
+
+fn is_likely_binary(bytes: &[u8]) -> bool {
+    let sample = &bytes[..bytes.len().min(8192)];
+    sample.contains(&0x00)
+        || sample
+            .iter()
+            .filter(|&&b| b < 0x08 || (b > 0x0D && b < 0x20))
+            .count() as f64
+            / sample.len() as f64
+            > 0.1
+}
+
+fn decode_legacy(bytes: &[u8]) -> String {
     for enc in &[
-        encoding_rs::WINDOWS_1252,
+        encoding_rs::GBK,
         encoding_rs::SHIFT_JIS,
         encoding_rs::EUC_JP,
-        encoding_rs::GBK,
         encoding_rs::BIG5,
     ] {
         let (decoded, had_error) = enc.decode_without_bom_handling(bytes);
         if !had_error {
-            return Ok(decoded.into_owned());
+            return decoded.into_owned();
         }
     }
-
     let (decoded, _, _) = encoding_rs::WINDOWS_1252.decode(bytes);
-    Ok(decoded.into_owned())
+    decoded.into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode(s: &str) -> String {
+        decode_probably_text(s.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn utf8_passthrough() {
+        assert_eq!(
+            decode("SELECT id, name\nFROM users;\n"),
+            "SELECT id, name\nFROM users;\n"
+        );
+    }
+
+    #[test]
+    fn utf16_le_without_bom_detected_as_text() {
+        let text = "SELECT id, name FROM users;";
+        let mut bytes = Vec::new();
+        for b in text.bytes() {
+            bytes.push(b);
+            bytes.push(0x00);
+        }
+        assert_eq!(decode_probably_text(&bytes).unwrap(), text);
+    }
+
+    #[test]
+    fn utf16_be_without_bom_detected_as_text() {
+        let text = "SELECT name FROM roles;";
+        let mut bytes = Vec::new();
+        for b in text.bytes() {
+            bytes.push(0x00);
+            bytes.push(b);
+        }
+        assert_eq!(decode_probably_text(&bytes).unwrap(), text);
+    }
+
+    #[test]
+    fn null_bytes_are_binary() {
+        let bytes = [0x00u8, 0x01, 0x02, 0x7f, 0x00, 0x00, 0x11, 0x22];
+        assert!(decode_probably_text(&bytes).is_none());
+    }
+
+    #[test]
+    fn gbk_selects_over_windows1252() {
+        let source = "SELECT id FROM 用户表;";
+        let (gbk, _, _) = encoding_rs::GBK.encode(source);
+        assert_eq!(decode_probably_text(&gbk).unwrap(), source);
+    }
 }
