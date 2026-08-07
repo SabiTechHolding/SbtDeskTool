@@ -1,0 +1,12 @@
+if ! cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check 2>/dev/null; then
+  echo "cargo not in PATH, trying known install paths..."
+  CARGO=""
+  for p in "$HOME/.cargo/bin/cargo" "$HOME/.cargo/bin/cargo.exe" /usr/local/bin/cargo; do
+    if [ -x "$p" ]; then CARGO="$p"; break; fi
+  done
+  if [ -z "$CARGO" ]; then
+    echo "WARNING: cargo not found, skipping fmt check"
+    exit 0
+  fi
+  "$CARGO" fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+fi

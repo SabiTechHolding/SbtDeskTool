@@ -111,8 +111,14 @@ fn default_settings() -> serde_json::Map<String, Value> {
         Value::Number(serde_json::Number::from_f64(0.5).expect("valid ratio")),
     );
     map.insert("note_sidebar_width".into(), Value::Number(220.into()));
-    map.insert("folder_diff_left_folder".into(), Value::String(String::new()));
-    map.insert("folder_diff_right_folder".into(), Value::String(String::new()));
+    map.insert(
+        "folder_diff_left_folder".into(),
+        Value::String(String::new()),
+    );
+    map.insert(
+        "folder_diff_right_folder".into(),
+        Value::String(String::new()),
+    );
     map.insert("folder_diff_filter".into(), Value::String("changes".into()));
     map
 }
