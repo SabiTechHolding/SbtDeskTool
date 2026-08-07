@@ -81,12 +81,16 @@
     if (leftFolder && rightFolder) await compare();
   }
 
-  function swapFolders() {
+  async function swapFolders() {
     const tmp = leftFolder;
     leftFolder = rightFolder;
     rightFolder = tmp;
     persistState();
-    if (leftFolder && rightFolder) void compare();
+    if (!leftFolder || !rightFolder) return;
+    const active = selectedFile;
+    await compare();
+    const entry = entries.find((item) => item.relative_path === active);
+    if (entry) handleRowClick(entry);
   }
 
   async function compare() {

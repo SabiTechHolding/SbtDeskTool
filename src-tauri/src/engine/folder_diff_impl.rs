@@ -1,4 +1,4 @@
-﻿use serde::Serialize;
+use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -284,19 +284,51 @@ fn is_likely_binary(bytes: &[u8]) -> bool {
 }
 
 fn decode_legacy(bytes: &[u8]) -> String {
-    for enc in &[
+    let candidates = [
         encoding_rs::GBK,
         encoding_rs::SHIFT_JIS,
         encoding_rs::EUC_JP,
         encoding_rs::BIG5,
-    ] {
-        let (decoded, had_error) = enc.decode_without_bom_handling(bytes);
-        if !had_error {
-            return decoded.into_owned();
+        encoding_rs::WINDOWS_1252,
+    ];
+    let is_japanese_enc =
+        |enc: &'static encoding_rs::Encoding| matches!(enc.name(), "Shift_JIS" | "EUC-JP");
+    let mut best_key: (i64, bool, u8) = (i64::MIN, false, 0);
+    let mut best_text = String::new();
+    for enc in candidates {
+        let (decoded, _) = enc.decode_without_bom_handling(bytes);
+        let mut score: i64 = 0;
+        let mut kana = 0usize;
+        for ch in decoded.chars() {
+            score += match ch {
+                '\n' | '\r' | '\t' => 1,
+                '\u{20}'..='\u{7E}' => 1,
+                '\u{FFFD}' => -2,
+                '\u{3040}'..='\u{30FF}' => {
+                    kana += 1;
+                    6
+                }
+                '\u{3000}'..='\u{303F}' => 3,
+                '\u{4E00}'..='\u{9FFF}' => 2,
+                '\u{FF00}'..='\u{FF5F}' => 3,
+                c if (c as u32) < 0x20 || (c as u32) == 0x7F => -4,
+                _ => 0,
+            };
+        }
+        let (round, _, _) = enc.encode(&decoded);
+        if round == bytes {
+            score += 100;
+        }
+        let has_kana = kana > 0;
+        let jp_rank = if is_japanese_enc(enc) { 0 } else { 1 };
+        let tie = if has_kana { 1 - jp_rank } else { jp_rank };
+        let key = (score, has_kana, tie);
+        if key > best_key {
+            best_key = key;
+            best_text = decoded.into_owned();
         }
     }
-    let (decoded, _, _) = encoding_rs::WINDOWS_1252.decode(bytes);
-    decoded.into_owned()
+    best_text
 }
 
 #[cfg(test)]
@@ -348,5 +380,19 @@ mod tests {
         let source = "SELECT id FROM 用户表;";
         let (gbk, _, _) = encoding_rs::GBK.encode(source);
         assert_eq!(decode_probably_text(&gbk).unwrap(), source);
+    }
+
+    #[test]
+    fn shift_jis_japanese_wins_over_gbk() {
+        let source = "SELECT id FROM ユーザー WHERE 名前 = '山田';";
+        let (sjs, _, _) = encoding_rs::SHIFT_JIS.encode(source);
+        assert_eq!(decode_probably_text(&sjs).unwrap(), source);
+    }
+
+    #[test]
+    fn euc_jp_japanese_wins_over_gbk() {
+        let source = "SELECT id FROM 注文表 WHERE 日付 = '2026-08-07' です;";
+        let (euc, _, _) = encoding_rs::EUC_JP.encode(source);
+        assert_eq!(decode_probably_text(&euc).unwrap(), source);
     }
 }
