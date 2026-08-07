@@ -87,7 +87,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   note_sidebar_width: 220,
   folder_diff_left_folder: "",
   folder_diff_right_folder: "",
-  folder_diff_filter: "changes",
+  folder_diff_filter: "all",
 };
 
 let cached: AppSettings | null = null;

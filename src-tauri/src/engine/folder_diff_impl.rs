@@ -7,6 +7,7 @@ use std::{
 };
 
 const MAX_PREVIEW_BYTES: u64 = 4 * 1024 * 1024;
+const HEXDUMP_LINE_LEN: usize = 16;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FolderDiffEntry {
@@ -144,19 +145,134 @@ pub fn compare_folders(
         .collect()
 }
 
-pub fn read_text_file(path: &Path) -> Result<String, String> {
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadFileResult {
+    pub content: String,
+}
+
+fn is_likely_binary(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    let sample = &bytes[..bytes.len().min(8192)];
+    sample.contains(&0x00)
+        || sample
+            .iter()
+            .filter(|&&b| b < 0x08 || (b > 0x0D && b < 0x20))
+            .count() as f64
+            / sample.len() as f64
+            > 0.1
+}
+
+fn format_hexdump(bytes: &[u8]) -> String {
+    let total = bytes.len().div_ceil(HEXDUMP_LINE_LEN);
+    let mut out = String::with_capacity(bytes.len() * 5);
+    for (idx, chunk) in bytes.chunks(HEXDUMP_LINE_LEN).enumerate() {
+        let offset = idx * HEXDUMP_LINE_LEN;
+        use std::fmt::Write;
+        let _ = write!(out, "{offset:08x}  ");
+        for (i, c) in chunk.iter().enumerate() {
+            if i == 8 {
+                out.push(' ');
+            }
+            let _ = write!(out, "{c:02x} ");
+        }
+        if chunk.len() < HEXDUMP_LINE_LEN {
+            let pad = (HEXDUMP_LINE_LEN - chunk.len()) * 3 + if chunk.len() <= 8 { 1 } else { 0 };
+            for _ in 0..pad {
+                out.push(' ');
+            }
+        }
+        out.push(' ');
+        out.push('|');
+        for c in chunk {
+            out.push(if c.is_ascii_graphic() || *c == b' ' {
+                *c as char
+            } else {
+                '.'
+            });
+        }
+        out.push('|');
+        if idx + 1 < total {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+pub fn read_text_file(path: &Path) -> Result<ReadFileResult, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
     if !metadata.is_file() {
         return Err(format!("{} is not a file", path.display()));
     }
     if metadata.len() > MAX_PREVIEW_BYTES {
-        return Err(format!(
-            "{} is larger than the 4 MB preview limit",
-            path.display()
-        ));
+        let bytes = read_head(path, MAX_PREVIEW_BYTES)?;
+        return Ok(if is_likely_binary(&bytes) {
+            ReadFileResult {
+                content: format_hexdump(&bytes),
+            }
+        } else {
+            ReadFileResult {
+                content: decode_text(&bytes)?,
+            }
+        });
     }
-    let bytes =
-        fs::read(path).map_err(|error| format!("Could not read {}: {error}", path.display()))?;
-    String::from_utf8(bytes).map_err(|_| format!("{} is not a UTF-8 text file", path.display()))
+    let bytes = read_head(path, MAX_PREVIEW_BYTES)?;
+    if is_likely_binary(&bytes) {
+        Ok(ReadFileResult {
+            content: format_hexdump(&bytes),
+        })
+    } else {
+        let text = decode_text(&bytes)?;
+        Ok(ReadFileResult { content: text })
+    }
+}
+
+fn read_head(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let file = fs::File::open(path)
+        .map_err(|error| format!("Could not open {}: {error}", path.display()))?;
+    let mut handle = file.take(limit);
+    let mut bytes = Vec::with_capacity(limit.min(64 * 1024) as usize);
+    handle
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+    Ok(bytes)
+}
+
+fn decode_text(bytes: &[u8]) -> Result<String, String> {
+    if bytes.is_empty() {
+        return Ok(String::new());
+    }
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return Ok(text);
+    }
+
+    let encoding = encoding_rs::Encoding::for_bom(bytes);
+    if let Some((enc, bom_len)) = encoding {
+        let (decoded, _, _) = enc.decode(&bytes[bom_len..]);
+        return Ok(decoded.into_owned());
+    }
+
+    let text = String::from_utf8_lossy(bytes);
+    if !text.contains('\u{FFFD}') {
+        return Ok(text.into_owned());
+    }
+
+    for enc in &[
+        encoding_rs::WINDOWS_1252,
+        encoding_rs::SHIFT_JIS,
+        encoding_rs::EUC_JP,
+        encoding_rs::GBK,
+        encoding_rs::BIG5,
+    ] {
+        let (decoded, had_error) = enc.decode_without_bom_handling(bytes);
+        if !had_error {
+            return Ok(decoded.into_owned());
+        }
+    }
+
+    let (decoded, _, _) = encoding_rs::WINDOWS_1252.decode(bytes);
+    Ok(decoded.into_owned())
 }

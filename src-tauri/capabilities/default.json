@@ -11,6 +11,10 @@
     "dialog:default",
     "updater:default",
     {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "**" }]
+    },
+    {
       "identifier": "fs:allow-write-text-file",
       "allow": [{ "path": "$DESKTOP/*" }, { "path": "$DOCUMENT/*" }, { "path": "$DOWNLOAD/*" }, { "path": "$HOME/*" }]
     }

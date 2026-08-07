@@ -119,7 +119,7 @@ fn default_settings() -> serde_json::Map<String, Value> {
         "folder_diff_right_folder".into(),
         Value::String(String::new()),
     );
-    map.insert("folder_diff_filter".into(), Value::String("changes".into()));
+    map.insert("folder_diff_filter".into(), Value::String("all".into()));
     map
 }
 

@@ -1,4 +1,6 @@
-use crate::engine::folder_diff::{compare_folders as compare, read_text_file, FolderDiffEntry};
+use crate::engine::folder_diff::{
+    compare_folders as compare, read_text_file, FolderDiffEntry, ReadFileResult,
+};
 use std::path::PathBuf;
 
 #[tauri::command]
@@ -14,7 +16,7 @@ pub async fn compare_folders(
 }
 
 #[tauri::command]
-pub async fn read_folder_diff_file(path: String) -> Result<String, String> {
+pub async fn read_folder_diff_file(path: String) -> Result<ReadFileResult, String> {
     tokio::task::spawn_blocking(move || read_text_file(&PathBuf::from(path)))
         .await
         .map_err(|error| format!("File preview task failed: {error}"))?

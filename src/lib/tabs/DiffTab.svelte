@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import DiffEditor from "../components/DiffEditor.svelte";
   import FolderDiffPanel from "../components/FolderDiffPanel.svelte";
   import FindBar from "../components/FindBar.svelte";
@@ -20,6 +20,10 @@
     right_present: boolean;
     left_tokens: InlineToken[];
     right_tokens: InlineToken[];
+  }
+
+  interface ReadFileResult {
+    content: string;
   }
 
   let {
@@ -67,6 +71,13 @@
   let showCenterControls = $state(false);
   let compareMode = $state<"text" | "folder">("text");
   let selectedFolderFile = $state("");
+  let viewMode = $state<"diff" | "preview">("diff");
+  let previewLeftUrl = $state("");
+  let previewRightUrl = $state("");
+  let previewKind = $state("");
+  let largeEntry = $state<{ relative_path: string; left_path: string | null; right_path: string | null } | null>(null);
+  let largePreviewLeft = $state("");
+  let largePreviewRight = $state("");
   let savedTextDiff = $state({ left: "", right: "" });
   let folderSidebarWidth = $state(360);
   let diffRoot = $state<HTMLDivElement>();
@@ -243,6 +254,10 @@
     selectedFolderFile = "";
     leftText = "";
     rightText = "";
+    previewKind = "";
+    largeEntry = null;
+    largePreviewLeft = "";
+    largePreviewRight = "";
     diffData = [];
     diffStats = { added: 0, removed: 0, changed_blocks: 0 };
     detailLeft = "";
@@ -263,6 +278,7 @@
     if (compareMode !== "folder") return;
     compareMode = "text";
     selectedFolderFile = "";
+    largeEntry = null;
     leftText = savedTextDiff.left;
     rightText = savedTextDiff.right;
     void runDiff();
@@ -277,25 +293,30 @@
     if (compact && compareMode === "folder") exitFolderCompare();
   });
 
-  function openFolderFiles(left: string, right: string, label: string) {
+  function openFolderFiles(left: string, right: string, label: string, kind = "text", entry?: { relative_path: string; left_path: string | null; right_path: string | null }) {
     leftText = left;
     selectedFolderFile = label;
     rightText = right;
+    previewKind = kind;
+    largeEntry = kind === "large" ? entry ?? null : null;
+    largePreviewLeft = kind === "large" ? left : "";
+    largePreviewRight = kind === "large" ? right : "";
+    viewMode = kind === "large" ? "preview" : "diff";
     queueMicrotask(() => findBar?.refresh());
-    void runDiff();
+    if (kind !== "large") void runDiff();
     onStatusUpdate?.(`Loaded ${label} from folder comparison`, "normal");
   }
 
   async function openDiffPaths(paths: string[]) {
     if (paths.length !== 2) return;
     try {
-      const [left, right] = await Promise.all(paths.map((path) => invoke<string>("read_folder_diff_file", { path })));
+      const [left, right] = await Promise.all(paths.map((path) => invoke<ReadFileResult>("read_folder_diff_file", { path })));
       if (compareMode === "folder") {
         compareMode = "text";
       }
       selectedFolderFile = "";
-      leftText = left;
-      rightText = right;
+      leftText = left.content;
+      rightText = right.content;
       await runDiff();
       onStatusUpdate?.("Opened files from command line", "success");
     } catch {
@@ -313,6 +334,52 @@
   export function openPaths(paths: string[]) { void openDiffPaths(paths); }
 
   function toggleDetail() { showDetail = !showDetail; }
+
+  function handleFolderPreview(entry: { relative_path: string; left_path: string | null; right_path: string | null }) {
+    selectedFolderFile = entry.relative_path;
+    previewLeftUrl = entry.left_path ? convertFileSrc(entry.left_path) : "";
+    previewRightUrl = entry.right_path ? convertFileSrc(entry.right_path) : "";
+    previewKind = entry.relative_path.split(".").pop()?.toLowerCase() ?? "";
+    viewMode = "preview";
+    void loadFolderFileText(entry);
+    onStatusUpdate?.(`Previewing ${entry.relative_path}`, "normal");
+  }
+
+  async function loadFolderFileText(entry: { relative_path: string; left_path: string | null; right_path: string | null }) {
+    const [left, right] = await Promise.all([
+      entry.left_path ? invoke<ReadFileResult>("read_folder_diff_file", { path: entry.left_path }) : Promise.resolve({ content: "" }),
+      entry.right_path ? invoke<ReadFileResult>("read_folder_diff_file", { path: entry.right_path }) : Promise.resolve({ content: "" }),
+    ]);
+    if (selectedFolderFile !== entry.relative_path) return;
+    leftText = left.content;
+    rightText = right.content;
+    queueMicrotask(() => findBar?.refresh());
+    void runDiff();
+  }
+
+  const mediaExts = ["png","jpg","jpeg","gif","webp","bmp","svg","ico","tiff","tif","pdf","mp4","webm","mov","avi","mkv","mp3","wav","flac"];
+  function isPreviewable() { return compareMode === "folder" && (mediaExts.includes(previewKind) || previewKind === "large"); }
+
+async function showTextDiff() {
+    if (previewKind === "large" && largeEntry) {
+      const entry = largeEntry;
+      const [left, right] = await Promise.all([
+        entry.left_path ? invoke<ReadFileResult>("read_folder_diff_file", { path: entry.left_path }) : Promise.resolve({ content: "" }),
+        entry.right_path ? invoke<ReadFileResult>("read_folder_diff_file", { path: entry.right_path }) : Promise.resolve({ content: "" }),
+      ]);
+      if (selectedFolderFile !== entry.relative_path) return;
+      leftText = left.content;
+      rightText = right.content;
+      queueMicrotask(() => findBar?.refresh());
+      void runDiff();
+      onStatusUpdate?.(`Loaded text content of ${entry.relative_path}`, "normal");
+    }
+    viewMode = "diff";
+  }
+
+  function showPreview() {
+    viewMode = "preview";
+  }
 
   function toggleWordDiff() {
     wordDiff = !wordDiff;
@@ -424,6 +491,12 @@
             <AppIcon name="actions" size={14} /><span class="btn-label">Actions</span>
           </button>
         </div>
+        {#if isPreviewable()}
+        <div class="control-group" aria-label="View mode">
+          <button class="icon-btn" class:toggled={viewMode === "diff"} onclick={() => void showTextDiff()} title="Text diff view"><AppIcon name="diff" size={14} /><span class="btn-label">Text Diff</span></button>
+          <button class="icon-btn" class:toggled={viewMode === "preview"} onclick={showPreview} title="Preview view"><AppIcon name="preview" size={14} /><span class="btn-label">Preview</span></button>
+        </div>
+        {/if}
         <div class="control-group" aria-label="Search controls">
           <button class="icon-btn" class:toggled={findOpen} onclick={toggleCommonFind} title="Show or hide common search"><AppIcon name="search" size={14} /><span class="btn-label">All</span></button>
           <button class="icon-btn" class:toggled={leftFindOpen} onclick={() => void toggleSideFind("left")} title="Show or hide Left editor search"><AppIcon name="search-left" size={14} /><span class="btn-label">L</span></button>
@@ -440,7 +513,7 @@
 
   {#if compareMode === "folder" && !compact}
     <aside class="folder-sidebar" aria-label="Folder comparison">
-      <FolderDiffPanel onOpenFiles={openFolderFiles} {onStatusUpdate} />
+      <FolderDiffPanel onOpenFiles={openFolderFiles} {onStatusUpdate} selectedFile={selectedFolderFile} onPreview={handleFolderPreview} />
     </aside>
     <div class="folder-splitter" role="separator" aria-orientation="vertical" aria-label="Resize folder panel" tabindex="0" onpointerdown={startFolderResize} onkeydown={handleFolderSplitterKey}></div>
   {/if}
@@ -452,35 +525,79 @@
   {/if}
 
   <div class="diff-body">
-    {#key editorGeneration}
-      <DiffEditor
-        bind:this={diffEditor}
-        {fontSize}
-        {wordWrap}
-        {theme}
-        {wordDiff}
-        {ignoreWhitespace}
-        {showWhitespace}
-        {diffAlgorithm}
-        showCenterControls={showCenterControls && !compact}
-        leftValue={leftText}
-        rightValue={rightText}
-        diffData={diffData}
-        sashRatio={initialSashRatio}
-        onChangeLeft={onLeftChange}
-        onChangeRight={onRightChange}
-        onCursorChange={handleCursorChange}
-        onFindVisibilityChange={handleSideFindVisibility}
-        {onZoom}
-        onDetailChange={(left, right, kind, leftTokens, rightTokens) => {
-          detailLeft = left;
-          detailRight = right;
-          detailLeftTokens = leftTokens;
-          detailRightTokens = rightTokens;
-          detailKind = kind;
-        }}
-      />
-    {/key}
+    {#if viewMode === "preview" && previewKind === "large"}
+      <div class="media-preview">
+        <div class="media-side large-side">
+          <span class="large-placeholder">{largePreviewLeft || "No file on left"}</span>
+        </div>
+        <div class="media-side large-side">
+          <span class="large-placeholder">{largePreviewRight || "No file on right"}</span>
+        </div>
+      </div>
+    {:else if viewMode === "preview" && isPreviewable()}
+      <div class="media-preview">
+        <div class="media-side" class:empty={!previewLeftUrl}>
+          {#if previewLeftUrl}
+            {#if ["png","jpg","jpeg","gif","webp","bmp","svg","ico","tiff","tif"].includes(previewKind)}
+              <img src={previewLeftUrl} alt="" />
+            {:else if previewKind === "pdf"}
+              <iframe src={previewLeftUrl} title="Left"></iframe>
+            {:else if ["mp4","webm","mov","avi","mkv"].includes(previewKind)}
+              <video src={previewLeftUrl} controls></video>
+            {:else if ["mp3","wav","flac"].includes(previewKind)}
+              <audio src={previewLeftUrl} controls></audio>
+            {/if}
+          {:else}
+            <span class="media-empty">No file on left</span>
+          {/if}
+        </div>
+        <div class="media-side" class:empty={!previewRightUrl}>
+          {#if previewRightUrl}
+            {#if ["png","jpg","jpeg","gif","webp","bmp","svg","ico","tiff","tif"].includes(previewKind)}
+              <img src={previewRightUrl} alt="" />
+            {:else if previewKind === "pdf"}
+              <iframe src={previewRightUrl} title="Right"></iframe>
+            {:else if ["mp4","webm","mov","avi","mkv"].includes(previewKind)}
+              <video src={previewRightUrl} controls></video>
+            {:else if ["mp3","wav","flac"].includes(previewKind)}
+              <audio src={previewRightUrl} controls></audio>
+            {/if}
+          {:else}
+            <span class="media-empty">No file on right</span>
+          {/if}
+        </div>
+      </div>
+    {:else}
+      {#key editorGeneration}
+        <DiffEditor
+          bind:this={diffEditor}
+          {fontSize}
+          {wordWrap}
+          {theme}
+          {wordDiff}
+          {ignoreWhitespace}
+          {showWhitespace}
+          {diffAlgorithm}
+          showCenterControls={showCenterControls && !compact}
+          leftValue={leftText}
+          rightValue={rightText}
+          diffData={diffData}
+          sashRatio={initialSashRatio}
+          onChangeLeft={onLeftChange}
+          onChangeRight={onRightChange}
+          onCursorChange={handleCursorChange}
+          onFindVisibilityChange={handleSideFindVisibility}
+          {onZoom}
+          onDetailChange={(left, right, kind, leftTokens, rightTokens) => {
+            detailLeft = left;
+            detailRight = right;
+            detailLeftTokens = leftTokens;
+            detailRightTokens = rightTokens;
+            detailKind = kind;
+          }}
+        />
+      {/key}
+    {/if}
   </div>
 
   {#if showDetail && !compact}
@@ -553,6 +670,16 @@
   .diff-view-group .icon-btn { min-width: 48px; }
   .diff-view-group .icon-btn:nth-child(2), .diff-view-group .icon-btn:nth-child(4) { min-width: 68px; }
   .diff-body { display: flex; flex: 1; overflow: hidden; }
+  .media-preview { display: flex; flex: 1; gap: 1px; background: var(--border); }
+  .media-side { flex: 1; display: flex; align-items: center; justify-content: center; background: var(--bg); overflow: hidden; padding: 8px; }
+  .media-side img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .media-side.empty { background: color-mix(in srgb, var(--bg2) 60%, var(--bg)); }
+  .media-side.empty .media-empty { color: var(--fg3); font-size: 12px; }
+  .media-side iframe { width: 100%; height: 100%; border: 0; }
+  .media-side video, .media-side audio { max-width: 100%; max-height: 100%; }
+  .media-empty { color: var(--fg3); font-size: 13px; }
+  .media-side.large-side { align-items: center; justify-content: center; }
+  .large-placeholder { font-family: 'JetBrains Mono','Consolas',monospace; font-size: 12px; color: var(--fg2); padding: 12px; }
   .detail-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 1fr 1fr; align-items: center; gap: 2px 6px; height: 58px; padding: 3px 8px; background: var(--bg2); border-top: 1px solid var(--border); font-family: 'JetBrains Mono','Consolas',monospace; font-size: 11px; flex-shrink: 0; overflow: hidden; }
   .detail-label { color: var(--fg2); font-size: 11px; font-weight: 600; flex-shrink: 0; }
   .detail-side { display: flex; min-width: 0; gap: 4px; padding: 2px 5px; background: var(--bg); border: 1px solid var(--border); }

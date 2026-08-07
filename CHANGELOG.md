@@ -1,5 +1,12 @@
 # SbtDeskTool changelog
 
+## v1.26.8.7 — Folder Comparison and Developer Tooling
+
+- Added folder comparison engine with recursive file difference computation and changes-only filtering.
+- Added Folder Diff panel UI with left/right folder path selection and output table.
+- Added `--folder-diff-left` and `--folder-diff-right` CLI arguments for quick folder diff launches.
+- Added persistent folder diff configuration stored per folder pair.
+
 ## v1.26.8.5 — Translation Provider Reliability and Agent CLI
 
 - Fixed provider connection tests to use the current unsaved enablement, endpoint, model, and API key values.
