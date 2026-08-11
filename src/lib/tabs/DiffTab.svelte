@@ -4,7 +4,7 @@
   import FolderDiffPanel from "../components/FolderDiffPanel.svelte";
   import FindBar from "../components/FindBar.svelte";
   import AppIcon from "../components/AppIcon.svelte";
-  import { saveSetting } from "../stores/settings";
+  import { loadSettings, saveSetting } from "../stores/settings";
   import { onMount, onDestroy, tick } from "svelte";
 
   interface InlineToken {
@@ -271,12 +271,14 @@
     if (compareMode === "folder") return;
     savedTextDiff = { left: leftText, right: rightText };
     compareMode = "folder";
+    void saveSetting("folder_diff_enabled", true);
     clearFolderPreview();
   }
 
   function exitFolderCompare() {
     if (compareMode !== "folder") return;
     compareMode = "text";
+    void saveSetting("folder_diff_enabled", false);
     selectedFolderFile = "";
     largeEntry = null;
     leftText = savedTextDiff.left;
@@ -313,6 +315,7 @@
       const [left, right] = await Promise.all(paths.map((path) => invoke<ReadFileResult>("read_folder_diff_file", { path })));
       if (compareMode === "folder") {
         compareMode = "text";
+        void saveSetting("folder_diff_enabled", false);
       }
       selectedFolderFile = "";
       leftText = left.content;
@@ -449,7 +452,11 @@ async function showTextDiff() {
   onMount(() => {
     document.addEventListener("diff:openPaths", handleOpenDiffPaths);
     document.addEventListener("diff:setLeft", handleDropEvent);
-    void runDiff();
+    void (async () => {
+      const settings = await loadSettings();
+      if (settings.folder_diff_enabled && !compact) compareMode = "folder";
+      await runDiff();
+    })();
   });
 
   onDestroy(() => {

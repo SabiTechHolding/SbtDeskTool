@@ -11,6 +11,10 @@
     <path d="M5 3h11l3 3v15H5z"/><path d="M16 3v4h4M8 11h8M8 15h8"/>
   {:else if name === "layout"}
     <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>
+  {:else if name === "list-view"}
+    <path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>
+  {:else if name === "tree-view"}
+    <path d="M5 4v16M5 8h5M5 16h5M10 8v8M10 12h5M15 12h5"/>
   {:else if name === "wrap"}
     <path d="M4 6h12a4 4 0 1 1 0 8h-5M4 10h9M8 17l3-3-3-3"/>
   {:else if name === "detail"}

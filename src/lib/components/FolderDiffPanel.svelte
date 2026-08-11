@@ -18,6 +18,10 @@
     content: string;
   }
 
+  type FolderViewRow =
+    | { kind: "folder"; path: string; name: string; depth: number; collapsed: boolean }
+    | { kind: "file"; entry: FolderDiffEntry; name: string; depth: number };
+
   let { onOpenFiles, onStatusUpdate, selectedFile = "", onPreview }: {
     onOpenFiles: (left: string, right: string, label: string, kind: string, largeEntry?: { relative_path: string; left_path: string | null; right_path: string | null }) => void;
     onStatusUpdate?: (text: string, kind: string) => void;
@@ -31,6 +35,8 @@
   let filter = $state<"changes" | "all" | "different" | "left_only" | "right_only">("all");
   let loading = $state(false);
   let error = $state("");
+  let viewMode = $state<"list" | "tree">("list");
+  let collapsedFolders = $state<Set<string>>(new Set());
 
   const labelForStatus: Record<FolderDiffEntry["status"], string> = {
     different: "Different",
@@ -57,6 +63,12 @@
     void saveSetting("folder_diff_left_folder", leftFolder);
     void saveSetting("folder_diff_right_folder", rightFolder);
     void saveSetting("folder_diff_filter", filter);
+    void saveSetting("folder_diff_view_mode", viewMode);
+  }
+
+  function setViewMode(mode: "list" | "tree") {
+    viewMode = mode;
+    persistState();
   }
 
   async function clearSavedState() {
@@ -65,7 +77,9 @@
     leftFolder = "";
     rightFolder = "";
     filter = "all";
+    viewMode = "list";
     entries = [];
+    collapsedFolders = new Set();
     error = "";
     persistState();
     onStatusUpdate?.("Cleared saved folder comparison", "normal");
@@ -119,6 +133,7 @@
     leftFolder = settings.folder_diff_left_folder;
     rightFolder = settings.folder_diff_right_folder;
     filter = settings.folder_diff_filter;
+    viewMode = settings.folder_diff_view_mode;
     if (leftFolder && rightFolder) await compare();
   }
 
@@ -171,6 +186,49 @@
     filter === "all" ? true : filter === "changes" ? entry.status !== "equal" : entry.status === filter,
   ));
 
+  const treeRows = $derived.by(() => {
+    const folders = new Map<string, { name: string; parent: string }>();
+    const filesByParent = new Map<string, FolderDiffEntry[]>();
+    for (const entry of visibleEntries) {
+      const parts = entry.relative_path.split(/[\\/]/).filter(Boolean);
+      if (!parts.length) continue;
+      let parent = "";
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        const path = parent ? `${parent}/${parts[index]}` : parts[index];
+        if (!folders.has(path)) folders.set(path, { name: parts[index], parent });
+        parent = path;
+      }
+      const files = filesByParent.get(parent) ?? [];
+      files.push(entry);
+      filesByParent.set(parent, files);
+    }
+
+    const rows: FolderViewRow[] = [];
+    const append = (parent: string, depth: number) => {
+      const childFolders = [...folders.entries()]
+        .filter(([, folder]) => folder.parent === parent)
+        .sort(([left], [right]) => left.localeCompare(right));
+      for (const [path, folder] of childFolders) {
+        const collapsed = collapsedFolders.has(path);
+        rows.push({ kind: "folder", path, name: folder.name, depth, collapsed });
+        if (!collapsed) append(path, depth + 1);
+      }
+      for (const entry of filesByParent.get(parent) ?? []) {
+        const parts = entry.relative_path.split(/[\\/]/).filter(Boolean);
+        rows.push({ kind: "file", entry, name: parts.at(-1) ?? entry.relative_path, depth });
+      }
+    };
+    append("", 0);
+    return rows;
+  });
+
+  function toggleFolder(path: string) {
+    const next = new Set(collapsedFolders);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    collapsedFolders = next;
+  }
+
   function handleFolderPaths(event: Event) {
     const paths = (event as CustomEvent<string[]>).detail;
     if (Array.isArray(paths) && paths.length === 2) void openFolders(paths[0], paths[1]);
@@ -213,6 +271,10 @@
       <button class:active={filter === "left_only"} onclick={() => { filter = "left_only"; persistState(); }} title="Left only" aria-label="Left only">&#8592;</button>
       <button class:active={filter === "right_only"} onclick={() => { filter = "right_only"; persistState(); }} title="Right only" aria-label="Right only">&#8594;</button>
     </div>
+    <div class="view-group control-group" aria-label="Folder result view">
+      <button class:active={viewMode === "list"} onclick={() => setViewMode("list")} title="List view" aria-label="List view"><AppIcon name="list-view" size={14} /></button>
+      <button class:active={viewMode === "tree"} onclick={() => setViewMode("tree")} title="Tree view" aria-label="Tree view"><AppIcon name="tree-view" size={14} /></button>
+    </div>
   </div>
 
   {#if error}<p class="folder-error">{error}</p>{/if}
@@ -220,6 +282,38 @@
   <div class="folder-results" role="list" aria-label="Folder comparison results">
     {#if !entries.length && !loading}
       <p class="folder-empty">Choose two folders, then compare them.</p>
+    {:else if !visibleEntries.length}
+      <p class="folder-empty">No files match this filter.</p>
+    {:else if viewMode === "tree"}
+      {#each treeRows as row (row.kind === "folder" ? `folder:${row.path}` : `file:${row.entry.relative_path}`)}
+        {#if row.kind === "folder"}
+          <button class="folder-row folder-node" onclick={() => toggleFolder(row.path)} aria-expanded={!row.collapsed} title={`${row.collapsed ? "Expand" : "Collapse"} ${row.path}`}>
+            <span class="folder-toggle">{row.collapsed ? "▸" : "▾"}</span>
+            <span class="file-path tree-label" style={`--tree-depth: ${row.depth}`}>
+              <span class="tree-guides" aria-hidden="true"></span>
+              <AppIcon name="folder-compare" size={13} />
+              <span>{row.name}</span>
+            </span>
+            <span class="file-size"></span>
+            <span class="file-size"></span>
+          </button>
+        {:else}
+          {@const isActive = selectedFile === row.entry.relative_path}
+          <button class="folder-row"
+            class:equal={row.entry.status === "equal"} class:different={row.entry.status === "different"}
+            class:left-only={row.entry.status === "left_only"} class:right-only={row.entry.status === "right_only"}
+            class:active={isActive}
+            onclick={() => handleRowClick(row.entry)} title={`Open ${row.entry.relative_path}`}>
+            <span class="status" class:different={row.entry.status === "different"} class:left-only={row.entry.status === "left_only"} class:right-only={row.entry.status === "right_only"} title={labelForStatus[row.entry.status]} aria-label={labelForStatus[row.entry.status]}>{iconForStatus[row.entry.status]}</span>
+            <span class="file-path tree-label" style={`--tree-depth: ${row.depth}`}>
+              <span class="tree-guides" aria-hidden="true"></span>
+              <span>{row.name}</span>
+            </span>
+            <span class="file-size">{formatSize(row.entry.left_size)}</span>
+            <span class="file-size">{formatSize(row.entry.right_size)}</span>
+          </button>
+        {/if}
+      {/each}
     {:else}
       {#each visibleEntries as entry (entry.relative_path)}
         {@const isActive = selectedFile === entry.relative_path}
@@ -233,8 +327,6 @@
           <span class="file-size">{formatSize(entry.left_size)}</span>
           <span class="file-size">{formatSize(entry.right_size)}</span>
         </button>
-      {:else}
-        <p class="folder-empty">No files match this filter.</p>
       {/each}
     {/if}
   </div>
@@ -273,9 +365,14 @@
   .folder-row.different:hover, .folder-row.left-only:hover, .folder-row.right-only:hover { background: color-mix(in srgb, var(--accent) 18%, var(--bg)); }
   .folder-row.active { background: color-mix(in srgb, var(--accent) 26%, var(--bg)) !important; }
   .folder-row.equal { color: var(--fg2); }
+  .folder-node { color: var(--fg); font-weight: 600; }
+  .folder-node:hover { background: var(--btn-hover); }
+  .folder-toggle { color: var(--accent); font-size: 13px; text-align: center; }
   .status { color: var(--accent2); font-family: inherit; font-size: 13px; font-weight: 700; text-align: center; }
   .status.different { color: var(--warning); }.status.left-only { color: var(--diff-del-inline); }.status.right-only { color: var(--diff-add-inline); }
   .file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.file-size { color: var(--fg2); text-align: right; }
+  .tree-label { display: flex; align-items: center; gap: 4px; }
+  .tree-guides { align-self: stretch; flex: 0 0 calc(var(--tree-depth, 0) * 12px); width: calc(var(--tree-depth, 0) * 12px); min-height: 18px; background-image: repeating-linear-gradient(90deg, transparent 0 10px, color-mix(in srgb, var(--border) 90%, transparent) 10px 11px, transparent 11px 12px); }
   .folder-empty, .folder-error { margin: 0; padding: 8px; font-size: 11px; color: var(--fg2); }.folder-error { color: var(--error); padding-bottom: 0; }
   @media (max-width: 420px) { .folder-row { grid-template-columns: 18px minmax(44px, 1fr) minmax(26px, 14%) minmax(26px, 14%); padding-inline: 5px; }.file-size { font-size: 10px; } }
   @media (max-width: 300px) { .folder-row { grid-template-columns: 18px minmax(0, 1fr); }.file-size { display: none; } }
@@ -287,4 +384,8 @@
     .filter-group button { width: 20px; }
     .action-btn { width: 22px; }
   }
+  .view-group { display: inline-flex; align-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+  .view-group button { width: 25px; height: 23px; padding: 0; border: 0; border-right: 1px solid var(--border); background: transparent; color: var(--fg2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  .view-group button:last-child { border-right: 0; }
+  .view-group button:hover, .view-group button.active { background: color-mix(in srgb, var(--accent) 22%, var(--bg)); color: var(--accent); }
 </style>

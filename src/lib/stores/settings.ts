@@ -43,6 +43,8 @@ export interface AppSettings {
   folder_diff_left_folder: string;
   folder_diff_right_folder: string;
   folder_diff_filter: "changes" | "all" | "different" | "left_only" | "right_only";
+  folder_diff_view_mode: "list" | "tree";
+  folder_diff_enabled: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -88,6 +90,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   folder_diff_left_folder: "",
   folder_diff_right_folder: "",
   folder_diff_filter: "all",
+  folder_diff_view_mode: "list",
+  folder_diff_enabled: false,
 };
 
 let cached: AppSettings | null = null;
@@ -95,8 +99,9 @@ let cached: AppSettings | null = null;
 export async function loadSettings(): Promise<AppSettings> {
   if (cached) return cached;
   try {
-    cached = await invoke<AppSettings>("get_settings");
-    return merged();
+    const stored = await invoke<Partial<AppSettings>>("get_settings");
+    cached = { ...DEFAULT_SETTINGS, ...stored };
+    return cached;
   } catch {
     return merged();
   }

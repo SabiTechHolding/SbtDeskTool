@@ -1,5 +1,12 @@
 # SbtDeskTool changelog
 
+## v1.26.8.11 — Folder Diff Tree View and Persistent UI State
+
+- Added persistent Folder Diff left and right folder selections.
+- Persisted the selected Folder Compare mode across app restarts.
+- Persisted Folder Diff filter-group and List/Tree view-group choices across app restarts.
+- Added expandable and collapsible folder rows in Tree view with per-level indentation guides.
+
 ## v1.26.8.7 — Folder Comparison and Developer Tooling
 
 - Added folder comparison engine with recursive file difference computation and configurable result filtering (all / changes / different / left-only / right-only).
