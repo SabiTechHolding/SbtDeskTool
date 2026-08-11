@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "SbtDeskTool",
-  "version": "1.26.8-7.66",
+  "version": "1.26.8-11.67",
   "identifier": "com.sabitech.sbtdesktool",
   "build": {
     "frontendDist": "../dist",
