@@ -678,7 +678,7 @@ pub fn open_file_terminal(path: String) -> Result<(), String> {
             .arg(&directory)
             .spawn()
             .map(|_| ())
-            .map_err(|error| format!("Unable to open terminal: {error}"));
+            .map_err(|error| format!("Unable to open terminal: {error}"))
     }
     #[cfg(target_os = "macos")]
     return std::process::Command::new("open")
