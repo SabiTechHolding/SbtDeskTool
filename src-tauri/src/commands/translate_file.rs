@@ -673,12 +673,12 @@ pub fn open_file_terminal(path: String) -> Result<(), String> {
         if wt_result.is_ok() {
             return Ok(());
         }
-        return std::process::Command::new("cmd.exe")
+        std::process::Command::new("cmd.exe")
             .args(["/K", "cd", "/D"])
             .arg(&directory)
             .spawn()
             .map(|_| ())
-            .map_err(|error| format!("Unable to open terminal: {error}"));
+            .map_err(|error| format!("Unable to open terminal: {error}"))
     }
     #[cfg(target_os = "macos")]
     return std::process::Command::new("open")
