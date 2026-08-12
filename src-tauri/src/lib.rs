@@ -21,7 +21,7 @@ use commands::{
     translate::{get_translation_providers, translate, translate_units},
     translate_file::{
         cancel_excel_translation, has_excel_translation_checkpoint, inspect_excel_file,
-        open_excel_output_location, translate_excel_file,
+        open_excel_output_location, open_file_terminal, open_file_with, translate_excel_file,
     },
     translation_data::{
         delete_dictionary_entry, delete_translation_memory_entry, export_dictionary_csv,
@@ -298,6 +298,8 @@ pub fn run() {
             inspect_excel_file,
             has_excel_translation_checkpoint,
             open_excel_output_location,
+            open_file_with,
+            open_file_terminal,
             list_dictionary_entries,
             save_dictionary_entry,
             delete_dictionary_entry,

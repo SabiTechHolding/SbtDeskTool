@@ -83,7 +83,11 @@ jobs:
             read -r major build <<< "$version_parts"
             tag="v${major}.$(date -u +'%y.%-m.%-d')-${build}"
           fi
-          version="$(node scripts/set-version.mjs "$tag")"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="$(node scripts/set-version.mjs "$tag" --print)"
+          else
+            version="$(node scripts/set-version.mjs "$tag")"
+          fi
           display_version="${tag#v}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"

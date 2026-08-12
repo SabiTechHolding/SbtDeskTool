@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { stat } from "@tauri-apps/plugin-fs";
   import { loadSettings, saveSetting } from "../stores/settings";
   import { open, confirm } from "@tauri-apps/plugin-dialog";
   import AppIcon from "./AppIcon.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
+  import type { ContextItem } from "./ContextMenu.svelte";
 
   interface FolderDiffEntry {
     relative_path: string;
@@ -22,11 +25,14 @@
     | { kind: "folder"; path: string; name: string; depth: number; collapsed: boolean }
     | { kind: "file"; entry: FolderDiffEntry; name: string; depth: number };
 
-  let { onOpenFiles, onStatusUpdate, selectedFile = "", onPreview }: {
-    onOpenFiles: (left: string, right: string, label: string, kind: string, largeEntry?: { relative_path: string; left_path: string | null; right_path: string | null }) => void;
+  let { onOpenFiles, onStatusUpdate, selectedFile = "", onPreview, onPinFile, onSaveFile, onExternalChange }: {
+    onOpenFiles: (left: string, right: string, label: string, kind: string, entry?: { relative_path: string; left_path: string | null; right_path: string | null }) => void;
     onStatusUpdate?: (text: string, kind: string) => void;
     selectedFile?: string;
     onPreview?: (entry: FolderDiffEntry) => void;
+    onPinFile?: (entry: FolderDiffEntry) => void;
+    onSaveFile?: (entry: FolderDiffEntry, side: "left" | "right") => void;
+    onExternalChange?: (entry: FolderDiffEntry | null) => void;
   } = $props();
 
   let leftFolder = $state("");
@@ -37,6 +43,12 @@
   let error = $state("");
   let viewMode = $state<"list" | "tree">("list");
   let collapsedFolders = $state<Set<string>>(new Set());
+  let contextMenu = $state<{ entry: FolderDiffEntry; x: number; y: number } | null>(null);
+  let refreshing = false;
+  let lastSnapshot = "";
+  let activeFileStamp = "";
+  let monitorTimer: ReturnType<typeof setInterval> | undefined;
+  const BACKUP_SUFFIX = ".sbt-desktool.bak";
 
   const labelForStatus: Record<FolderDiffEntry["status"], string> = {
     different: "Different",
@@ -57,6 +69,37 @@
     if (size < 1024) return `${size} B`;
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function isBackupPath(relativePath: string) {
+    return relativePath.endsWith(BACKUP_SUFFIX);
+  }
+
+  function cleanEntries(next: FolderDiffEntry[]) {
+    return next.filter((entry) => !isBackupPath(entry.relative_path));
+  }
+
+  function entrySignature(entry: FolderDiffEntry | undefined) {
+    if (!entry) return "missing";
+    return [entry.relative_path, entry.status, entry.left_path, entry.right_path, entry.left_size, entry.right_size].join("|");
+  }
+
+  function entriesSignature(next: FolderDiffEntry[]) {
+    return next.map(entrySignature).join("\n");
+  }
+
+  async function fileStamp(entry: FolderDiffEntry | undefined) {
+    if (!entry) return "";
+    const infos = await Promise.all([entry.left_path, entry.right_path].map(async (path) => {
+      if (!path) return "missing";
+      try {
+        const info = await stat(path);
+        return `${info.size}:${info.mtime?.getTime() ?? ""}`;
+      } catch {
+        return "missing";
+      }
+    }));
+    return infos.join("|");
   }
 
   function persistState() {
@@ -112,15 +155,20 @@
     loading = true;
     error = "";
     try {
-      entries = await invoke<FolderDiffEntry[]>("compare_folders", {
+      const next = cleanEntries(await invoke<FolderDiffEntry[]>("compare_folders", {
         leftRoot: leftFolder,
         rightRoot: rightFolder,
-      });
+      }));
+      entries = next;
+      lastSnapshot = entriesSignature(next);
+      activeFileStamp = "";
       const changed = entries.filter((entry) => entry.status !== "equal").length;
       persistState();
       onStatusUpdate?.(`Folder comparison complete: ${changed} changed of ${entries.length} files`, "success");
     } catch (reason) {
       entries = [];
+      lastSnapshot = "";
+      activeFileStamp = "";
       error = String(reason);
       onStatusUpdate?.(`Folder comparison failed: ${error}`, "error");
     } finally {
@@ -164,7 +212,7 @@
             : invoke<ReadFileResult>("read_folder_diff_file", { path: entry.right_path })
           : Promise.resolve({ content: "" }),
       ]);
-      onOpenFiles(left.content, right.content, entry.relative_path, fileKind, largeLeft || largeRight ? entry : undefined);
+      onOpenFiles(left.content, right.content, entry.relative_path, fileKind, entry);
       onStatusUpdate?.(`Opened ${entry.relative_path}`, "normal");
     } catch (reason) {
       error = String(reason);
@@ -180,6 +228,10 @@
     } else {
       void openDiff(entry);
     }
+  }
+
+  function handleRowDoubleClick(entry: FolderDiffEntry) {
+    onPinFile?.(entry);
   }
 
   const visibleEntries = $derived(entries.filter((entry) =>
@@ -229,16 +281,98 @@
     collapsedFolders = next;
   }
 
+  async function copyText(text: string) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      onStatusUpdate?.("Could not copy path", "error");
+    }
+  }
+
+  function hasSavePath(entry: FolderDiffEntry, side: "left" | "right") {
+    return selectedFile === entry.relative_path && Boolean(side === "left" ? entry.left_path : entry.right_path);
+  }
+
+  async function runPathAction(command: string, path: string, label: string) {
+    if (!path) return;
+    try {
+      await invoke(command, { path });
+    } catch (reason) {
+      onStatusUpdate?.(`${label} failed: ${String(reason)}`, "error");
+    }
+  }
+
+  function contextItems(entry: FolderDiffEntry): ContextItem[] {
+    const path = entry.left_path ?? entry.right_path ?? "";
+    const hasPath = Boolean(path);
+    const revealLabel = /^win/i.test(navigator.platform) ? "Reveal in File Explorer" : "Reveal in File Manager";
+    return [
+      { label: "Open diff", action: () => handleRowClick(entry) },
+      { label: "Open With...", action: () => void runPathAction("open_file_with", path, "Open With"), disabled: !hasPath },
+      { label: revealLabel, shortcut: "Shift+Alt+R", action: () => void runPathAction("open_excel_output_location", path, revealLabel), disabled: !hasPath },
+      { label: "Open in Integrated Terminal", action: () => void runPathAction("open_file_terminal", path, "Open terminal"), disabled: !hasPath },
+      { label: "Copy relative path", action: () => void copyText(entry.relative_path) },
+      { label: "Copy left path", action: () => void copyText(entry.left_path ?? ""), disabled: !entry.left_path },
+      { label: "Copy right path", action: () => void copyText(entry.right_path ?? ""), disabled: !entry.right_path },
+      { divider: true, label: "", action: () => {} },
+      { label: "Save editor to left file", action: () => onSaveFile?.(entry, "left"), disabled: !onSaveFile || !hasSavePath(entry, "left") },
+      { label: "Save editor to right file", action: () => onSaveFile?.(entry, "right"), disabled: !onSaveFile || !hasSavePath(entry, "right") },
+    ];
+  }
+
+  function handleContextMenu(event: MouseEvent, entry: FolderDiffEntry) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = { entry, x: event.clientX, y: event.clientY };
+  }
+
+  async function refreshFromDisk(notifyExternal: boolean) {
+    if (!leftFolder || !rightFolder || loading || refreshing) return;
+    refreshing = true;
+    try {
+      const next = cleanEntries(await invoke<FolderDiffEntry[]>("compare_folders", { leftRoot: leftFolder, rightRoot: rightFolder }));
+      const previousActive = entries.find((entry) => entry.relative_path === selectedFile);
+      const nextActive = next.find((entry) => entry.relative_path === selectedFile);
+      const previousActiveSignature = entrySignature(previousActive);
+      const nextActiveSignature = entrySignature(nextActive);
+      const nextStamp = await fileStamp(nextActive);
+      const activeChanged = Boolean(activeFileStamp && nextStamp && activeFileStamp !== nextStamp);
+      const entryChanged = previousActiveSignature !== nextActiveSignature;
+      entries = next;
+      lastSnapshot = entriesSignature(next);
+      activeFileStamp = nextStamp;
+      if (notifyExternal && (activeChanged || entryChanged)) onExternalChange?.(nextActive ?? previousActive ?? null);
+    } catch {
+      // A transient delete or permission change is handled by the next poll.
+    } finally {
+      refreshing = false;
+    }
+  }
+
   function handleFolderPaths(event: Event) {
     const paths = (event as CustomEvent<string[]>).detail;
     if (Array.isArray(paths) && paths.length === 2) void openFolders(paths[0], paths[1]);
   }
 
+  function handleRefreshRequest() {
+    void refreshFromDisk(false);
+  }
+  function handleWindowFocus() { void refreshFromDisk(true); }
+
   onMount(() => {
     document.addEventListener("folder:setPaths", handleFolderPaths);
+    document.addEventListener("folder:refresh", handleRefreshRequest);
+    window.addEventListener("focus", handleWindowFocus);
     void restoreSavedState();
+    monitorTimer = setInterval(() => void refreshFromDisk(true), 2000);
   });
-  onDestroy(() => document.removeEventListener("folder:setPaths", handleFolderPaths));
+  onDestroy(() => {
+    document.removeEventListener("folder:setPaths", handleFolderPaths);
+    document.removeEventListener("folder:refresh", handleRefreshRequest);
+    window.removeEventListener("focus", handleWindowFocus);
+    if (monitorTimer) clearInterval(monitorTimer);
+  });
 </script>
 
 <section class="folder-diff" aria-label="Folder comparison">
@@ -303,7 +437,7 @@
             class:equal={row.entry.status === "equal"} class:different={row.entry.status === "different"}
             class:left-only={row.entry.status === "left_only"} class:right-only={row.entry.status === "right_only"}
             class:active={isActive}
-            onclick={() => handleRowClick(row.entry)} title={`Open ${row.entry.relative_path}`}>
+            onclick={() => handleRowClick(row.entry)} ondblclick={() => handleRowDoubleClick(row.entry)} oncontextmenu={(event) => handleContextMenu(event, row.entry)} title={`Open ${row.entry.relative_path}`}>
             <span class="status" class:different={row.entry.status === "different"} class:left-only={row.entry.status === "left_only"} class:right-only={row.entry.status === "right_only"} title={labelForStatus[row.entry.status]} aria-label={labelForStatus[row.entry.status]}>{iconForStatus[row.entry.status]}</span>
             <span class="file-path tree-label" style={`--tree-depth: ${row.depth}`}>
               <span class="tree-guides" aria-hidden="true"></span>
@@ -321,7 +455,7 @@
           class:equal={entry.status === "equal"} class:different={entry.status === "different"}
           class:left-only={entry.status === "left_only"} class:right-only={entry.status === "right_only"}
           class:active={isActive}
-          onclick={() => handleRowClick(entry)} title={`Open ${entry.relative_path}`}>
+          onclick={() => handleRowClick(entry)} ondblclick={() => handleRowDoubleClick(entry)} oncontextmenu={(event) => handleContextMenu(event, entry)} title={`Open ${entry.relative_path}`}>
           <span class="status" class:different={entry.status === "different"} class:left-only={entry.status === "left_only"} class:right-only={entry.status === "right_only"} title={labelForStatus[entry.status]} aria-label={labelForStatus[entry.status]}>{iconForStatus[entry.status]}</span>
           <span class="file-path">{entry.relative_path}</span>
           <span class="file-size">{formatSize(entry.left_size)}</span>
@@ -330,6 +464,9 @@
       {/each}
     {/if}
   </div>
+  {#if contextMenu}
+    <ContextMenu items={contextItems(contextMenu.entry)} x={contextMenu.x} y={contextMenu.y} onClose={() => (contextMenu = null)} />
+  {/if}
 </section>
 
 <style>

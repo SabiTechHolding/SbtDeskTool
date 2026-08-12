@@ -6,6 +6,7 @@
     action: () => void;
     disabled?: boolean;
     divider?: boolean;
+    shortcut?: string;
   }
 
   let {
@@ -63,7 +64,10 @@
           class="menu-item"
           disabled={item.disabled}
           onclick={() => handleClick(item)}
-        >{item.label}</button>
+        >
+          <span>{item.label}</span>
+          {#if item.shortcut}<span class="menu-shortcut">{item.shortcut}</span>{/if}
+        </button>
       {/if}
     {/each}
   </div>
@@ -100,6 +104,7 @@
     text-align: left;
     border-radius: 2px;
   }
+  .menu-shortcut { margin-left: 24px; color: var(--fg3); font-size: 10px; }
 
   .menu-item:hover:not(:disabled) {
     background: var(--btn-hover);

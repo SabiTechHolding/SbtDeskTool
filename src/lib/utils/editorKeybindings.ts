@@ -1,6 +1,6 @@
 import { monaco } from "./monaco";
 
-export function installNotepadPlusPlusKeybindings(editor: monaco.editor.ICodeEditor) {
+export function installNotepadPlusPlusKeybindings(editor: monaco.editor.ICodeEditor, onSave?: () => void) {
   const { CtrlCmd, Shift, Alt } = monaco.KeyMod;
 
   const bind = (keybinding: number, actionId?: string) => {
@@ -110,6 +110,9 @@ export function installNotepadPlusPlusKeybindings(editor: monaco.editor.ICodeEdi
   });
 
   // App & File actions
+  editor.addCommand(CtrlCmd | monaco.KeyCode.KeyS, () => {
+    onSave?.();
+  });
   editor.addCommand(CtrlCmd | Shift | monaco.KeyCode.KeyS, () => {
     document.dispatchEvent(new CustomEvent("app:flush"));
   });

@@ -45,6 +45,7 @@ export interface AppSettings {
   folder_diff_filter: "changes" | "all" | "different" | "left_only" | "right_only";
   folder_diff_view_mode: "list" | "tree";
   folder_diff_enabled: boolean;
+  diff_pinned_tabs: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -92,6 +93,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   folder_diff_filter: "all",
   folder_diff_view_mode: "list",
   folder_diff_enabled: false,
+  diff_pinned_tabs: "[]",
 };
 
 let cached: AppSettings | null = null;

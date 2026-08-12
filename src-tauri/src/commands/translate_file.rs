@@ -623,6 +623,80 @@ pub fn open_excel_output_location(path: String) -> Result<(), String> {
         .map_err(|error| format!("Unable to open output location: {error}"))
 }
 
+#[tauri::command]
+pub fn open_file_with(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        return Err("The file no longer exists".into());
+    }
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("rundll32.exe");
+        command.arg("shell32.dll,OpenAs_RunDLL").arg(&path);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg(&path);
+        command
+    };
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(&path);
+        command
+    };
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Unable to open file: {error}"))
+}
+
+#[tauri::command]
+pub fn open_file_terminal(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let directory = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
+    if !directory.exists() {
+        return Err("The file directory no longer exists".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let wt_result = std::process::Command::new("wt.exe")
+            .args(["-d"])
+            .arg(&directory)
+            .spawn();
+        if wt_result.is_ok() {
+            return Ok(());
+        }
+        return std::process::Command::new("cmd.exe")
+            .args(["/K", "cd", "/D"])
+            .arg(&directory)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Unable to open terminal: {error}"));
+    }
+    #[cfg(target_os = "macos")]
+    return std::process::Command::new("open")
+        .args(["-a", "Terminal"])
+        .arg(&directory)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Unable to open terminal: {error}"));
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    return std::process::Command::new(
+        std::env::var("TERMINAL").unwrap_or_else(|_| "x-terminal-emulator".into()),
+    )
+    .current_dir(&directory)
+    .spawn()
+    .map(|_| ())
+    .map_err(|error| format!("Unable to open terminal: {error}"));
+}
+
 fn is_cancelled(task_id: &str) -> Result<bool, String> {
     Ok(CANCELLED
         .get_or_init(Default::default)

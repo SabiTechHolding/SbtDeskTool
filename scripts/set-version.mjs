@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 const input = process.argv[2]?.trim().replace(/^v/i, "");
+const printOnly = process.argv.includes("--print");
 if (!input) {
   throw new Error("Usage: node scripts/set-version.mjs <version>");
 }
@@ -16,6 +17,7 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
   throw new Error(`Invalid semantic version: ${input}`);
 }
 
+if (!printOnly) {
 if (calendar && fs.existsSync("version.json")) {
   const versionConfig = JSON.parse(fs.readFileSync("version.json", "utf8"));
   versionConfig.major = Number(calendar[1]);
@@ -52,5 +54,6 @@ const tauriPath = "src-tauri/tauri.conf.json";
 const tauri = JSON.parse(fs.readFileSync(tauriPath, "utf8"));
 tauri.version = version;
 fs.writeFileSync(tauriPath, `${JSON.stringify(tauri, null, 2)}\n`);
+}
 
 process.stdout.write(version);

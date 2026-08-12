@@ -65,6 +65,7 @@
     diffData = [] as DiffLine[],
     onChangeLeft,
     onChangeRight,
+    onSave,
     onCursorChange,
     onFindVisibilityChange,
     onDetailChange,
@@ -84,6 +85,7 @@
     diffData?: DiffLine[];
     onChangeLeft?: (text: string) => void;
     onChangeRight?: (text: string) => void;
+    onSave?: (side: "left" | "right") => void;
     onCursorChange?: (side: string, line: number, col: number, selLen: number, chars: number) => void;
     onFindVisibilityChange?: (side: "left" | "right", visible: boolean) => void;
     onDetailChange?: (
@@ -849,7 +851,9 @@
     if (!container || !diffEditor || container.clientWidth < 220) return;
     const originalWidth = diffEditor.getOriginalEditor().getLayoutInfo().width;
     const ratio = originalWidth / container.clientWidth;
-    if (ratio > 0.1 && ratio < 0.9) void saveSetting("diff_left_ratio", ratio);
+    if (ratio > 0.1 && ratio < 0.9) {
+      void saveSetting("diff_left_ratio", ratio);
+    }
   }
 
   onMount(() => {
@@ -864,8 +868,8 @@
 
     const leftEditor = diffEditor.getOriginalEditor();
     const rightEditor = diffEditor.getModifiedEditor();
-    installNotepadPlusPlusKeybindings(leftEditor);
-    installNotepadPlusPlusKeybindings(rightEditor);
+    installNotepadPlusPlusKeybindings(leftEditor, () => onSave?.("left"));
+    installNotepadPlusPlusKeybindings(rightEditor, () => onSave?.("right"));
     syncLeftGlyphMargin();
     leftSearchDecorations = leftEditor.createDecorationsCollection();
     rightSearchDecorations = rightEditor.createDecorationsCollection();
