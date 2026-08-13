@@ -58,8 +58,10 @@
       </section>
       <section>
         <h3>Folder Diff</h3>
-        <p>Compare two folders: choose Left and Right paths, then press Compare. Click a row to open a two-panel diff of that file.</p>
-        <p>Image, PDF, audio and video files open in Preview; the Text Diff button switches to the raw content. Files larger than 4 MB show their sizes in preview and load truncated text/binary content when switching to Text Diff. Filter buttons narrow the list to All, Changes, Different, Left-only or Right-only.</p>
+        <p>Choose Left and Right folders, then press Compare. Filter the results by All, Changes, Different, Left-only or Right-only. Switch between List and Tree; in Tree view, folders can be expanded or collapsed and indentation guides show their hierarchy.</p>
+        <p>Diff tabs and file path bars are available only while Folder Diff is open. Click a file for a preview tab; double-click it, or double-click its tab, to keep it open. Use + for a New diff preview, drag tabs to reorder, middle-click to close, or use the tab context menu for Keep open and close actions.</p>
+        <p>Each tab has Left and Right path fields. Enter a path and press Enter, Browse for a file, or Clear a side; Clear removes only that side's path and editor content. Image, PDF, audio and video files open in Preview; Text Diff switches to raw content. Files larger than 4 MB show sizes in preview and load truncated text or binary content in Text Diff.</p>
+        <p>Folder paths, the active Folder Diff mode, filter and List/Tree choice are restored on restart. Folder Diff is hidden in Compact mode.</p>
       </section>
       <section>
         <h3>Translate & Notes</h3>
