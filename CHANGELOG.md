@@ -1,5 +1,10 @@
 # SbtDeskTool changelog
 
+## v1.26.8.13 - Folder Diff Tab Scope Fix
+
+- Restored the original Text Diff experience: manual two-pane diff, file selection, and command-line file diff no longer create or display tabs.
+- Limited diff tabs, path bars, preview tabs, and persisted tab restoration to Folder Diff mode only.
+
 ## v1.26.8.11 — Folder Diff Tree View and Persistent UI State
 
 - Added persistent Folder Diff left and right folder selections.

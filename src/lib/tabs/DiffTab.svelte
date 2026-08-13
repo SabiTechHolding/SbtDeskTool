@@ -114,6 +114,8 @@
   let diffRequestId = 0;
   let diffTabs = $state<DiffTabState[]>([]);
   let activeDiffTabId = $state<number | null>(null);
+  let persistedPinnedTabs = $state("");
+  let pinnedTabsRestored = $state(false);
   let untitledDiffTabId = $state<number | null>(null);
   let leftPathInput = $state("");
   let rightPathInput = $state("");
@@ -231,6 +233,8 @@
   }
 
   async function restorePinnedTabs(serialized: string) {
+    if (pinnedTabsRestored) return;
+    pinnedTabsRestored = true;
     try {
       const saved = JSON.parse(serialized) as Array<{ title?: string; folderPath?: string; previewKind?: string; leftPath?: string; rightPath?: string }>;
       for (const item of saved) {
@@ -356,17 +360,21 @@
 
   function onLeftChange(text: string) {
     leftText = text;
-    updateActiveTab({ leftText: text });
+    if (compareMode === "folder") {
+      updateActiveTab({ leftText: text });
+      if (activeDiffTab && !activeDiffTab.pinned && !activeDiffTab.untitled) pinDiffTab(activeDiffTab);
+    }
     queueMicrotask(() => findBar?.refresh());
-    if (activeDiffTab && !activeDiffTab.pinned && !activeDiffTab.untitled) pinDiffTab(activeDiffTab);
     scheduleDiff();
   }
 
   function onRightChange(text: string) {
     rightText = text;
-    updateActiveTab({ rightText: text });
+    if (compareMode === "folder") {
+      updateActiveTab({ rightText: text });
+      if (activeDiffTab && !activeDiffTab.pinned && !activeDiffTab.untitled) pinDiffTab(activeDiffTab);
+    }
     queueMicrotask(() => findBar?.refresh());
-    if (activeDiffTab && !activeDiffTab.pinned && !activeDiffTab.untitled) pinDiffTab(activeDiffTab);
     scheduleDiff();
   }
 
@@ -500,6 +508,7 @@
     savedTextDiff = { left: leftText, right: rightText };
     compareMode = "folder";
     void saveSetting("folder_diff_enabled", true);
+    if (!pinnedTabsRestored && persistedPinnedTabs) void restorePinnedTabs(persistedPinnedTabs);
     clearFolderPreview();
   }
 
@@ -560,14 +569,9 @@
         compareMode = "text";
         void saveSetting("folder_diff_enabled", false);
       }
-      const tab = createDiffTab(true, false, false);
-      tab.title = `${shortTabTitle(paths[0])} ↔ ${shortTabTitle(paths[1])}`;
-      tab.folderPath = "";
-      tab.leftPath = paths[0];
-      tab.rightPath = paths[1];
-      tab.leftText = left.content;
-      tab.rightText = right.content;
-      activateDiffTab(tab);
+      leftText = left.content;
+      rightText = right.content;
+      void runDiff();
       onStatusUpdate?.("Opened files from command line", "success");
     } catch {
       enterFolderCompare();
@@ -586,17 +590,23 @@
   async function chooseTabFile(side: "left" | "right") {
     const selected = await open({ multiple: false, directory: false, title: `Choose ${side} diff file` });
     if (typeof selected !== "string") return;
-    const tab = activeDiffTab ?? createDiffTab(true);
     try {
       const file = await invoke<ReadFileResult>("read_folder_diff_file", { path: selected });
+      if (compareMode !== "folder") {
+        if (side === "left") leftText = file.content;
+        else rightText = file.content;
+        void runDiff();
+        onStatusUpdate?.(`Loaded ${selected}`, "success");
+        return;
+      }
+
+      const tab = activeDiffTab ?? createDiffTab(true);
       if (side === "left") {
         tab.leftPath = selected;
         tab.leftText = file.content;
-        leftText = file.content;
       } else {
         tab.rightPath = selected;
         tab.rightText = file.content;
-        rightText = file.content;
       }
       tab.untitled = false;
       tab.pinned = true;
@@ -903,8 +913,11 @@ async function showTextDiff() {
     document.addEventListener("diff:setLeft", handleDropEvent);
     void (async () => {
       const settings = await loadSettings();
-      if (settings.folder_diff_enabled && !compact) compareMode = "folder";
-      await restorePinnedTabs(settings.diff_pinned_tabs);
+      persistedPinnedTabs = settings.diff_pinned_tabs;
+      if (settings.folder_diff_enabled && !compact) {
+        compareMode = "folder";
+        await restorePinnedTabs(persistedPinnedTabs);
+      }
       await runDiff();
     })();
   });
@@ -981,6 +994,7 @@ async function showTextDiff() {
     </div>
   {/if}
 
+  {#if compareMode === "folder"}
   <div class="diff-tabbar" role="tablist" aria-label="Diff tabs">
     {#if !diffTabs.length}
       <span class="no-tabs-label">No diff tabs open</span>
@@ -1022,12 +1036,12 @@ async function showTextDiff() {
       </div>
     </div>
   {/if}
+  {/if}
 
   <div class="diff-body">
-    {#if !diffTabs.length}
+    {#if compareMode === "folder" && !diffTabs.length}
       <div class="no-diff-tabs">No diff tab is open. Click + to create one, or choose a file from Folder Diff.</div>
-    {:else if activeDiffTab && !activeDiffTab.leftPath && !activeDiffTab.rightPath}
-      <div class="no-diff-tabs">New diff tab: enter a left and/or right file path above, then press Enter to compare.</div>
+
     {:else if viewMode === "preview" && previewKind === "large"}
       <div class="media-preview">
         <div class="media-side large-side">
