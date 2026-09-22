@@ -21,10 +21,11 @@ jobs:
         include:
           - platform: Windows
             os: windows-latest
-          - platform: macOS
-            os: macos-latest
-          - platform: Linux
-            os: ubuntu-22.04
+          # Tạm thời tắt build cho macOS/Linux
+          # - platform: macOS
+          #   os: macos-latest
+          # - platform: Linux
+          #   os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -133,20 +134,21 @@ jobs:
             rust_target: ""
             artifact: windows-x64
             bundle_path: target/release/bundle/**
-          - platform: macOS Universal
-            os: macos-latest
-            bundles: app,dmg
-            target: universal-apple-darwin
-            rust_target: aarch64-apple-darwin,x86_64-apple-darwin
-            artifact: macos-universal
-            bundle_path: target/universal-apple-darwin/release/bundle/**
-          - platform: Linux x64
-            os: ubuntu-22.04
-            bundles: appimage,deb,rpm
-            target: ""
-            rust_target: ""
-            artifact: linux-x64
-            bundle_path: target/release/bundle/**
+          # Tạm thời tắt build cho macOS/Linux
+          # - platform: macOS Universal
+          #   os: macos-latest
+          #   bundles: app,dmg
+          #   target: universal-apple-darwin
+          #   rust_target: aarch64-apple-darwin,x86_64-apple-darwin
+          #   artifact: macos-universal
+          #   bundle_path: target/universal-apple-darwin/release/bundle/**
+          # - platform: Linux x64
+          #   os: ubuntu-22.04
+          #   bundles: appimage,deb,rpm
+          #   target: ""
+          #   rust_target: ""
+          #   artifact: linux-x64
+          #   bundle_path: target/release/bundle/**
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -354,16 +356,6 @@ jobs:
           # updater manifest points to that exact asset; the ZIP is only the
           # safer user-facing browser download.
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SbtDeskTool-${{ needs.release-metadata.outputs.display_version }}-${{ matrix.artifact }}
-          path: |
-            ${{ matrix.bundle_path }}
-            ${{ runner.os == 'Windows' && steps.windows_downloads.outputs.portable_path || '' }}
-            ${{ runner.os == 'Windows' && steps.windows_downloads.outputs.installer_path || '' }}
-          if-no-files-found: error
-          retention-days: 30
 
   publish-release:
     name: Publish complete release
